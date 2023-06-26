@@ -20,4 +20,5 @@ esp_err_t util_substr(
     int start,
     int end);
 
+void freeIfNotNull(void *ptr);
 char *util_extract_json(char *pcBuffer);
