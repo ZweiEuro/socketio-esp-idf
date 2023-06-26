@@ -1,0 +1,26 @@
+menu "socketio-esp-idf"
+
+    config EIO_VERSION
+        int "Engine IO Version"
+        range 1 5
+        default 4
+        help
+            Engine IO Version for the protocol
+
+    config SIO_HTTP_RECV_BUFFER
+        int "Recv buffer size"
+        range 512 4096 
+        default 512
+        help
+            Receiver buffer allocation (stack)
+
+    config SIO_DEFAULT_MESSAGE_QUEUE_SIZE
+        int "Message queue size"
+        range 1 10
+        default 5
+        help
+            Message queue size for the socketio client
+
+
+
+endmenu

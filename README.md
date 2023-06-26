@@ -1,4 +1,6 @@
-Project based on https://github.com/socketio/socket.io-client-cpp/
+Project based on https://github.com/socketio/socket.io-client-cpp/tree/3.1.0
+
+based on v3.1.0
 
 ## What is this?
 
@@ -7,3 +9,5 @@ The general socketio implementation is written for unix socket implementations. 
 ## What this does not do
 
 You can choose to either use polling or websocket as transport from start to finish. upgrading from polling to websocket is WIP if i get around to it.
+
+There will definitely not be any kind of connection reuse or anything similar.
