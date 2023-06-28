@@ -59,13 +59,7 @@ extern "C"
 
     // http structs
 
-    typedef struct
-    {
-        char *data;
-        size_t len;
-    } sio_http_response_t;
-
-    // Event struct
+     // Event struct
     typedef struct
     {
         sio_packet_t type;

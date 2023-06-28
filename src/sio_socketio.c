@@ -1,6 +1,7 @@
 #include <sio_socketio.h>
 #include <sio_types.h>
 #include <internal/http_handlers.h>
+#include <internal/sio_packet.h>
 #include <utility.h>
 
 #include <esp_log.h>
@@ -59,19 +60,17 @@ esp_err_t handshake(sio_client_t *client)
 esp_err_t handshake_polling(sio_client_t *client)
 {
 
-    sio_http_response_t response_data = {
-        .data = NULL,
-        .len = 0};
-
     // Form the request URL
     char *url = alloc_connect_url(client);
 
     ESP_LOGD(TAG, "Handshake URL: >%s< len:%d", url, strlen(url));
 
+    Packet_t *packet = NULL;
+
     esp_http_client_config_t config = {
         .url = url,
         .event_handler = http_client_polling_handler,
-        .user_data = &response_data,
+        .user_data = &packet,
         .disable_auto_redirect = true};
     esp_http_client_handle_t http_client = esp_http_client_init(&config);
 
@@ -83,9 +82,9 @@ esp_err_t handshake_polling(sio_client_t *client)
     }
 
     esp_err_t err = esp_http_client_perform(http_client);
-    if (err != ESP_OK)
+    if (err != ESP_OK || packet == NULL)
     {
-        ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "HTTP GET request failed: %s, packet pointer %p ", esp_err_to_name(err), packet);
 
         esp_http_client_cleanup(http_client);
         freeIfNotNull(url);
@@ -95,11 +94,15 @@ esp_err_t handshake_polling(sio_client_t *client)
     int http_response_status_code = esp_http_client_get_status_code(http_client);
     int http_response_content_length = esp_http_client_get_content_length(http_client);
     ESP_LOGI(
-        TAG, "HTTP GET Status = %d, content_length = %d, %s %d",
+        TAG, "HTTP GET Status = %d, content_length = %d",
         http_response_status_code,
-        http_response_content_length,
-        response_data.data,
-        response_data.len);
+        http_response_content_length);
+
+    ESP_LOGI(TAG, "Packet: %d %d len %d \n%s\n%s",
+
+             packet->eio_type, packet->sio_type, packet->len, packet->data, packet->json_start
+
+    );
 
     esp_http_client_cleanup(http_client);
     freeIfNotNull(url);

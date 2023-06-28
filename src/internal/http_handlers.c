@@ -1,4 +1,6 @@
 #include <internal/http_handlers.h>
+#include <internal/sio_packet.h>
+#include <utility.h>
 #include <sio_types.h>
 #include <esp_assert.h>
 #include <esp_log.h>
@@ -8,14 +10,7 @@ static const char *TAG = "[sio:http_handlers]";
 
 esp_err_t http_client_polling_handler(esp_http_client_event_t *evt)
 {
-    if (evt->user_data == NULL)
-    {
-        ESP_LOGE(TAG, "User data is NULL");
-        assert(false);
-        return ESP_OK;
-    }
-
-    sio_http_response_t *response_data = (sio_http_response_t *)evt->user_data;
+    Packet_t *response_data = *((Packet_t **)evt->user_data);
 
     switch (evt->event_id)
     {
@@ -33,16 +28,18 @@ esp_err_t http_client_polling_handler(esp_http_client_event_t *evt)
         break;
     case HTTP_EVENT_ON_DATA:
         ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
-        /*
-         *  Check for chunked encoding is added as the URL for chunked encoding used in this example returns binary data.
-         *  However, event handler can also be used in case chunked encoding is used.
-         */
+
         if (!esp_http_client_is_chunked_response(evt->client))
         {
 
-            if (response_data->data == NULL)
+            if (response_data == NULL)
             {
+                ESP_LOGD(TAG, "Allocating response data");
+                response_data = (Packet_t *)calloc(1, sizeof(Packet_t));
+                *((Packet_t **)evt->user_data) = response_data;
+
                 response_data->data = (char *)calloc(1, esp_http_client_get_content_length(evt->client) + 1);
+
                 response_data->len = 0;
                 if (response_data->data == NULL)
                 {
@@ -64,6 +61,11 @@ esp_err_t http_client_polling_handler(esp_http_client_event_t *evt)
     case HTTP_EVENT_ON_FINISH:
         ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
         // reponse data written into the user_data buffer
+        if (response_data != NULL)
+        {
+
+            parse_packet(response_data);
+        }
 
         break;
     case HTTP_EVENT_DISCONNECTED:
@@ -74,13 +76,13 @@ esp_err_t http_client_polling_handler(esp_http_client_event_t *evt)
         {
             ESP_LOGI(TAG, "Last esp error code: 0x%x", err);
             ESP_LOGI(TAG, "Last mbedtls failure: 0x%x", mbedtls_err);
+            if (response_data != NULL)
+            {
+                freeIfNotNull(response_data->data);
+                freeIfNotNull(response_data);
+            }
         }
-        if (response_data->data != NULL)
-        {
-            free(response_data->data);
-            response_data->data = NULL;
-        }
-        response_data->len = 0;
+
         break;
     case HTTP_EVENT_REDIRECT:
         ESP_LOGD(TAG, "HTTP_EVENT_REDIRECT");

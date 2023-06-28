@@ -16,16 +16,20 @@ extern "C"
 #include <sio_types.h>
 #include <esp_types.h>
 
-    typedef struct Packet_t
+    typedef struct
     {
-        eio_packet_t type;
-        uint32_t socket_id;
+        eio_packet_t eio_type;
+        sio_packet_t sio_type;
 
-        char *raw;  // raw gotten information
-        char *data_start; // directly at the data
-    } Packet;
+        char *json_start; // pointer inside buffer pointing to the start of the data (start of the json)
 
-    void parse(const char *raw_buffer, Packet *packet);
+        char *data; // raw data
+        size_t len;
+    } Packet_t;
+
+    void parse_packet(Packet_t *packet);
+
+    void free_packet(Packet_t *packet);
 
 #ifdef __cplusplus
 }
