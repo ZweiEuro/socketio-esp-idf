@@ -8,17 +8,25 @@
 
 #pragma once
 
-#include <internal/sio_types.h>
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+#include <sio_types.h>
 #include <esp_types.h>
 
-typedef struct Packet_t
-{
-    uint32_t pack_id;
-    eio_packet_t type;
-    uint32_t socket_id;
+    typedef struct Packet_t
+    {
+        eio_packet_t type;
+        uint32_t socket_id;
 
-    uint8_t *raw;  // raw gotten information
-    uint8_t *data; // directly at the data
-} Packet;
+        char *raw;  // raw gotten information
+        char *data_start; // directly at the data
+    } Packet;
 
-void parse(const uint8_t *raw_buffer, Packet *packet);
+    void parse(const char *raw_buffer, Packet *packet);
+
+#ifdef __cplusplus
+}
+#endif

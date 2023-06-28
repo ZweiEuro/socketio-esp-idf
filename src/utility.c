@@ -2,6 +2,7 @@
 #include "utility.h"
 #include <esp_assert.h>
 
+static const char *TAG = "[sio:util]";
 static const char token_charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 void freeIfNotNull(void *ptr)
