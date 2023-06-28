@@ -1,4 +1,5 @@
 #include <internal/http_handlers.h>
+#include <sio_types.h>
 #include <esp_assert.h>
 #include <esp_log.h>
 #include "esp_tls.h"
@@ -14,7 +15,7 @@ esp_err_t http_client_polling_handler(esp_http_client_event_t *evt)
         return ESP_OK;
     }
 
-    http_response_t *response_data = (http_response_t *)evt->user_data;
+    sio_http_response_t *response_data = (sio_http_response_t *)evt->user_data;
 
     switch (evt->event_id)
     {

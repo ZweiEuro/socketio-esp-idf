@@ -6,17 +6,21 @@
 #include <esp_log.h>
 static const char *TAG = "[sio_socketio]";
 
-esp_err_t handshake(const sio_client_t *client);
-esp_err_t handshake_polling(const sio_client_t *client);
-esp_err_t handshake_websocket(const sio_client_t *client);
+esp_err_t handshake(sio_client_t *client);
+esp_err_t handshake_polling(sio_client_t *client);
+esp_err_t handshake_websocket(sio_client_t *client);
 
-esp_err_t sio_client_begin(const sio_client_t *client)
+char *alloc_connect_url(const sio_client_t *client);
+
+esp_err_t sio_client_begin(const sio_client_id_t clientId)
 {
+
+    sio_client_t *client = sio_client_get(clientId);
 
     esp_err_t handshake_result = ESP_FAIL;
     uint16_t current_attempt = 1;
 
-    while (current_attempt < client->max_connect_retries)
+    while (client->max_connect_retries == 0 || current_attempt < client->max_connect_retries)
     {
         ESP_LOGI(TAG, "Connecting to %s attempt %d", client->server_address, current_attempt);
 
@@ -35,7 +39,7 @@ esp_err_t sio_client_begin(const sio_client_t *client)
     return handshake_result;
 }
 
-esp_err_t handshake(const sio_client_t *client)
+esp_err_t handshake(sio_client_t *client)
 {
 
     if (client->transport == SIO_TRANSPORT_WEBSOCKETS)
@@ -52,35 +56,17 @@ esp_err_t handshake(const sio_client_t *client)
     }
 }
 
-esp_err_t handshake_polling(const sio_client_t *client)
+esp_err_t handshake_polling(sio_client_t *client)
 {
 
-    http_response_t response_data = {
+    sio_http_response_t response_data = {
         .data = NULL,
         .len = 0};
 
-    size_t url_length =
-        strlen(SIO_TRANSPORT_POLLING_PROTO_STRING) +
-        strlen("://") +
-        strlen(client->server_address) +
-        strlen(client->url_path) +
-        strlen("/?EIO=X&transport=") +
-        strlen(SIO_TRANSPORT_POLLING_STRING) +
-        strlen("&t=") + strlen(client->token);
-
     // Form the request URL
-    char *url = calloc(1, url_length + 1);
-    sprintf(
-        url,
-        "%s://%s%s/?EIO=%d&transport=%s&t=%s",
-        SIO_TRANSPORT_POLLING_PROTO_STRING,
-        client->server_address,
-        client->url_path,
-        EIO_VERSION,
-        SIO_TRANSPORT_POLLING_STRING,
-        client->token);
+    char *url = alloc_connect_url(client);
 
-    ESP_LOGD(TAG, "Handshake URL: >%s< len:%d", url, url_length);
+    ESP_LOGD(TAG, "Handshake URL: >%s< len:%d", url, strlen(url));
 
     esp_http_client_config_t config = {
         .url = url,
@@ -121,7 +107,38 @@ esp_err_t handshake_polling(const sio_client_t *client)
     return ESP_OK;
 }
 
-esp_err_t handshake_websocket(const sio_client_t *client)
+esp_err_t handshake_websocket(sio_client_t *client)
 {
     assert(false && "Not implemented");
+}
+
+// util
+
+char *alloc_connect_url(const sio_client_t *client)
+{
+    char *token = alloc_random_string(SIO_TOKEN_SIZE);
+
+    size_t url_length =
+        strlen(client->transport == SIO_TRANSPORT_POLLING ? SIO_TRANSPORT_POLLING_PROTO_STRING : SIO_TRANSPORT_WEBSOCKETS_PROTO_STRING) +
+        strlen("://") +
+        strlen(client->server_address) +
+        strlen(client->sio_url_path) +
+        strlen("/?EIO=X&transport=") +
+        strlen(SIO_TRANSPORT_POLLING_STRING) +
+        strlen("&t=") + strlen(token);
+
+    // Form the request URL
+    char *url = calloc(1, url_length + 1);
+    sprintf(
+        url,
+        "%s://%s%s/?EIO=%d&transport=%s&t=%s",
+        SIO_TRANSPORT_POLLING_PROTO_STRING,
+        client->server_address,
+        client->sio_url_path,
+        client->eio_version,
+        SIO_TRANSPORT_POLLING_STRING,
+        token);
+
+    freeIfNotNull(token);
+    return url;
 }

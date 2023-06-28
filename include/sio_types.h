@@ -7,6 +7,8 @@ extern "C"
 
 #include <esp_types.h>
 
+    typedef uint8_t sio_client_id_t;
+
     // low level message
     typedef enum
     {
@@ -51,9 +53,25 @@ extern "C"
 
     typedef enum
     {
-        SIO_TRANSPORT_POLLING,   /* polling */
-        SIO_TRANSPORT_WEBSOCKETS /* websockets */
+        SIO_TRANSPORT_POLLING = 0, /* polling */
+        SIO_TRANSPORT_WEBSOCKETS   /* websockets */
     } sio_transport_t;
+
+    // http structs
+
+    typedef struct
+    {
+        char *data;
+        size_t len;
+    } sio_http_response_t;
+
+    // Event struct
+    typedef struct
+    {
+        sio_packet_t type;
+        char *data;
+        size_t len;
+    } sio_event_packet_t;
 
 #ifdef __cplusplus
 }

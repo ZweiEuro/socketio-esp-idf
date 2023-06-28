@@ -1,11 +1,34 @@
 menu "socketio-esp-idf"
 
-    config EIO_VERSION
+    config SIO_DEFAULT_EIO_VERSION
         int "Engine IO Version"
         range 1 5
         default 4
         help
-            Engine IO Version for the protocol
+            Engine IO Version for the protocol. Anything but 4 is not tested.
+
+
+    config SIO_DEFAULT_SIO_URL_PATH
+        string "Adress of socketio entpoint (usually '/socket.io'"
+        default "/socket.io"
+        help
+            default server socketio endpoint used.
+
+    config SIO_DEFAULT_SIO_NAMESPACE
+        string "Default namespace"
+        default "/"
+        help
+            default namespace to use (aka room)
+
+    config SIO_MAX_PARALLEL_SOCKETS
+        int "How many max parallel sockets to support"
+        range 1 10
+        default 5
+        help
+            How many sockets to allow to register
+
+
+    
 
     config SIO_HTTP_RECV_BUFFER
         int "Recv buffer size"

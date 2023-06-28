@@ -4,40 +4,110 @@
 #include <utility.h>
 #include <string.h>
 
-uint32_t id_generator_ = 1;
+static const char *TAG = "[sio_client]";
 
-void sio_client_init(sio_client_t *client, const char *server_addr, const char *nspc)
+sio_client_t **sio_client_map = (sio_client_t **)NULL;
+
+sio_client_id_t sio_client_init(const sio_client_config_t *config)
 {
-    client->client_id = id_generator_++;
-    client->eio_version = EIO_VERSION;
-    client->max_connect_retries = SIO_DEFAULT_MAX_CONN_RETRIES;
-    client->retry_interval_ms = SIO_DEFAULT_RETRY_INTERVAL_MS;
+
+    if (sio_client_map == NULL)
+    {
+        sio_client_map = calloc(SIO_MAX_PARALLEL_SOCKETS, sizeof(sio_client_t *));
+    }
+
+    // some basic error checks
+    if (config->server_address == NULL)
+    {
+        ESP_LOGE(TAG, "No server address provided");
+        return -1;
+    }
+
+    // get open slot
+    uint8_t slot = SIO_MAX_PARALLEL_SOCKETS;
+    for (uint8_t i = 0; i < SIO_MAX_PARALLEL_SOCKETS; i++)
+    {
+        if (sio_client_map[i] == NULL)
+        {
+            slot = i;
+            break;
+        }
+    }
+
+    // check if none was free
+    if (slot == SIO_MAX_PARALLEL_SOCKETS)
+    {
+        ESP_LOGE(TAG, "No slot available, clear a socket or increase the SIO_MAX_PARALLEL_SOCKETS define");
+        return 0;
+    }
+
+    // copy from config everyting over
+    sio_client_map[slot] = calloc(1, sizeof(sio_client_t));
+
+    sio_client_t *client = sio_client_map[slot];
+
+    client->client_id = slot;
+    client->eio_version = config->eio_version == NULL ? SIO_DEFAULT_EIO_VERSION : config->eio_version;
+
+    client->server_address = strdup(config->server_address);
+    client->sio_url_path = strdup(config->sio_url_path == NULL ? SIO_DEFAULT_SIO_URL_PATH : config->sio_url_path);
+    client->nspc = strdup(config->nspc == NULL ? SIO_DEFAULT_SIO_NAMESPACE : config->nspc);
+    client->transport = config->transport;
+
+    client->max_connect_retries = config->max_connect_retries;
+    client->retry_interval_ms = config->retry_interval_ms;
+
     client->server_ping_interval_ms = 0;
     client->server_ping_timeout_ms = 0;
-    client->transport = SIO_TRANSPORT_POLLING;
 
-    client->server_address = strdup(server_addr);
-    client->url_path = strdup(SIO_DEFAULT_URL_PATH);
-
-    client->token = alloc_random_string(SIO_TOKEN_SIZE);
     client->server_session_id = NULL;
 
-    client->nspc = strdup(nspc == NULL ? SIO_DEFAULT_NAMESPACE : nspc);
-
-    client->on_event = NULL;
-    client->on_event_size = 0;
+    return (sio_client_id_t)slot;
 }
 
-void sio_client_destroy(sio_client_t *client)
+void sio_client_destroy(const sio_client_id_t clientId)
 {
+    if (!sio_client_is_inited(clientId))
+    {
+        return;
+    }
+
+    sio_client_t *client = sio_client_map[clientId];
+
     freeIfNotNull(client->server_address);
-    freeIfNotNull(client->token);
-    freeIfNotNull(client->server_session_id);
+    freeIfNotNull(client->sio_url_path);
     freeIfNotNull(client->nspc);
-    freeIfNotNull(client->on_event);
+
+    // could be allocated
+    freeIfNotNull(client->server_session_id);
+    freeIfNotNull(client);
+
+    sio_client_map[clientId] = NULL;
+    // if all of them are freed then free the map
+
+    bool allFreed = true;
+    for (uint8_t i = 0; i < SIO_MAX_PARALLEL_SOCKETS; i++)
+    {
+        if (sio_client_map[i] != NULL)
+        {
+            allFreed = false;
+            break;
+        }
+    }
+
+    if (allFreed)
+    {
+        freeIfNotNull(sio_client_map);
+        sio_client_map = NULL;
+    }
 }
 
-bool sio_client_is_inited(const sio_client_t *client)
+bool sio_client_is_inited(const sio_client_id_t clientId)
 {
-    return client->token != NULL;
+    return sio_client_map[clientId] != NULL;
+}
+
+sio_client_t *sio_client_get(const sio_client_id_t clientId)
+{
+    return sio_client_map[clientId];
 }
