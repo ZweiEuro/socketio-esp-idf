@@ -19,7 +19,7 @@ char *alloc_random_string(const size_t length)
 {
     char *randomString = (char *)malloc(length + 1);
 
-    if (randomString)
+    if (randomString != NULL)
     {
         for (int n = 0; n < length; n++)
         {

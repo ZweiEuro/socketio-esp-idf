@@ -34,6 +34,7 @@ extern "C"
 
     void free_packet(Packet_t *packet);
 
+    void print_packet(const Packet_t *packet);
     // util
 
     void setEioType(Packet_t *packet, eio_packet_t type);

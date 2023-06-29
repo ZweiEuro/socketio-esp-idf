@@ -12,6 +12,8 @@ extern "C"
     // low level message
     typedef enum
     {
+        EIO_PACKET_NONE = -2,
+        EIO_PACKET_OK_SERVER = -1,
         EIO_PACKET_OPEN = 0,
         EIO_PACKET_CLOSE,
         EIO_PACKET_PING,
@@ -59,7 +61,7 @@ extern "C"
 
     // http structs
 
-     // Event struct
+    // Event struct
     typedef struct
     {
         sio_packet_t type;

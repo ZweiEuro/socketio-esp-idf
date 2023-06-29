@@ -15,6 +15,7 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet);
 esp_err_t sio_send_packet_websocket(sio_client_t *client, const Packet_t *packet);
 
 char *alloc_handshake_get_url(const sio_client_t *client);
+char *alloc_post_url(const sio_client_t *client);
 
 esp_err_t sio_client_begin(const sio_client_id_t clientId)
 {
@@ -39,7 +40,14 @@ esp_err_t sio_client_begin(const sio_client_id_t clientId)
         current_attempt++;
     }
 
-    ESP_LOGI(TAG, "Failed to connect to %s %s", client->server_address, esp_err_to_name(handshake_result));
+    if (handshake_result == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Connected to %s", client->server_address);
+    }
+    else
+    {
+        ESP_LOGI(TAG, "Failed to connect to %s %s", client->server_address, esp_err_to_name(handshake_result));
+    }
     unlockClient(client);
     return handshake_result;
 }
@@ -64,9 +72,9 @@ esp_err_t handshake(sio_client_t *client)
 
 esp_err_t handshake_polling(sio_client_t *client)
 {
-    if (client->polling_client != NULL)
+    if (client->polling_client_running)
     {
-        ESP_LOGE(TAG, "Polling client already initialized, close it properly first");
+        ESP_LOGE(TAG, "Polling client already running, close it properly first");
         return ESP_FAIL;
     }
 
@@ -84,7 +92,7 @@ esp_err_t handshake_polling(sio_client_t *client)
 
             esp_http_client_config_t config = {
                 .url = url,
-                .event_handler = http_client_polling_handler,
+                .event_handler = http_client_polling_get_handler,
                 .user_data = &packet,
                 .disable_auto_redirect = true,
                 .method = HTTP_METHOD_GET,
@@ -101,7 +109,7 @@ esp_err_t handshake_polling(sio_client_t *client)
         {
             esp_http_client_set_url(client->handshake_client, url);
             esp_http_client_set_method(client->handshake_client, HTTP_METHOD_GET);
-            esp_http_client_delete_header(client->handshake_client, "Content-Type");
+            esp_http_client_set_header(client->handshake_client, "Content-Type", "text/html");
             esp_http_client_set_header(client->handshake_client, "Accept", "text/plain");
         }
 
@@ -122,24 +130,31 @@ esp_err_t handshake_polling(sio_client_t *client)
         http_response_status_code,
         http_response_content_length);
 
-    ESP_LOGI(TAG, "Packet: %d %d len %d \n%s\n%s",
-             packet->eio_type, packet->sio_type, packet->len, packet->data, packet->json_start);
+    ESP_LOGI(TAG, "HTTP GET:");
+    print_packet(packet);
 
     // parse the packet to get out session id and reconnect stuff etc
 
-    // example string: {"sid":"XX","upgrades":["websocket"],"pingInterval":20000,"pingTimeout":5000,"maxPayload":1000000}
-
     cJSON *json = cJSON_Parse(packet->json_start);
+
     if (json == NULL)
     {
         ESP_LOGE(TAG, "Failed to parse JSON: %s", cJSON_GetErrorPtr());
+        const char *error_ptr = cJSON_GetErrorPtr();
+        if (error_ptr != NULL)
+        {
+            fprintf(stderr, "Error before: %s\n", error_ptr);
+        }
+        free_packet(packet);
+        unlockClient(client);
         return ESP_FAIL;
     }
 
-    client->server_session_id = cJSON_GetObjectItemCaseSensitive(json, "sid")->valuestring;
+    client->server_session_id = strdup(cJSON_GetObjectItemCaseSensitive(json, "sid")->valuestring);
     client->server_ping_interval_ms = cJSON_GetObjectItem(json, "pingInterval")->valueint;
     client->server_ping_timeout_ms = cJSON_GetObjectItem(json, "pingTimeout")->valueint;
 
+    cJSON_Delete(json);
     free_packet(packet);
     // send back the ok with the new url
 
@@ -151,11 +166,10 @@ esp_err_t handshake_polling(sio_client_t *client)
 
     Packet_t *p = alloc_packet(client->client_id, auth_data, strlen(auth_data));
     setSioType(p, SIO_PACKET_CONNECT);
-
-    esp_err_t ret = sio_send_packet_polling(client->client_id, p);
+    esp_err_t ret = sio_send_packet_polling(client, p);
     free_packet(p);
 
-    return ESP_OK;
+    return ret;
 }
 
 esp_err_t handshake_websocket(sio_client_t *client)
@@ -208,20 +222,71 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
 
     ESP_LOGI(TAG, "Sending package %s", packet->data);
 
-    // allocate posting user if not present
+    Packet_t *response_packet = NULL;
+    { // scope for first url without session id
 
-    return ESP_OK;
+        char *url = alloc_post_url(client);
 
-    { // second url, with session id, and build auth body
-        char *url = alloc_handshake_get_url(client);
+        if (client->posting_client == NULL)
+        {
 
-        esp_http_client_set_url(client->handshake_client, url);
-        esp_http_client_set_method(client->handshake_client, HTTP_METHOD_POST);
-        esp_http_client_set_header(client->handshake_client, "Content-Type", "text/plain");
-        esp_http_client_set_header(client->handshake_client, "Accept", "text/html");
+            // Form the request URL
+
+            ESP_LOGD(TAG, "Handshake URL: >%s< len:%d", url, strlen(url));
+
+            esp_http_client_config_t config = {
+                .url = url,
+                .event_handler = http_client_polling_post_handler,
+                .user_data = &response_packet,
+                .disable_auto_redirect = true,
+                .method = HTTP_METHOD_POST,
+            };
+            client->posting_client = esp_http_client_init(&config);
+
+            if (client->posting_client == NULL)
+            {
+                ESP_LOGE(TAG, "Failed to initialize HTTP client");
+                return ESP_FAIL;
+            }
+        }
+        else
+        {
+            esp_http_client_set_url(client->posting_client, url);
+        }
+        esp_http_client_set_header(client->posting_client, "Content-Type", "text/html");
+        esp_http_client_set_header(client->posting_client, "Accept", "text/plain");
+        esp_http_client_set_post_field(client->posting_client, packet->data, packet->len);
 
         freeIfNotNull(url);
     }
+
+    esp_err_t err = esp_http_client_perform(client->posting_client);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "HTTP GET request failed: %s, packet pointer %p ", esp_err_to_name(err), packet);
+        return err;
+    }
+
+    int http_response_status_code = esp_http_client_get_status_code(client->posting_client);
+
+    int http_response_content_length = esp_http_client_get_content_length(client->posting_client);
+    ESP_LOGI(
+        TAG, "HTTP POST Status = %d, content_length = %d",
+        http_response_status_code,
+        http_response_content_length);
+
+    ESP_LOGI(TAG, "HTTP POST:");
+    print_packet(packet);
+
+    // allocate posting user if not present
+    if (response_packet != NULL && response_packet->eio_type == EIO_PACKET_OK_SERVER)
+    {
+        ESP_LOGI(TAG, "Response packet: %s, ok from server, connect succesful", response_packet->data);
+
+        free_packet(response_packet);
+        return ESP_OK;
+    }
+    return ESP_FAIL;
 }
 
 esp_err_t sio_send_packet_websocket(sio_client_t *client, const Packet_t *packet)
@@ -270,6 +335,11 @@ char *alloc_handshake_get_url(const sio_client_t *client)
 
 char *alloc_post_url(const sio_client_t *client)
 {
+    if (client == NULL || client->server_session_id == NULL)
+    {
+        ESP_LOGE(TAG, "Server session id not set, was this client initialized? Client: %p", client);
+        return NULL;
+    }
 
     char *token = alloc_random_string(SIO_TOKEN_SIZE);
     size_t url_length =
@@ -283,6 +353,7 @@ char *alloc_post_url(const sio_client_t *client)
         strlen("&sid=") + strlen(client->server_session_id);
 
     char *url = calloc(1, url_length + 1);
+
     if (url == NULL)
     {
         assert(false && "Failed to allocate memory for handshake url");

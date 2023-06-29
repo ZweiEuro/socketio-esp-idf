@@ -8,7 +8,9 @@
 
 static const char *TAG = "[sio:http_handlers]";
 
-esp_err_t http_client_polling_handler(esp_http_client_event_t *evt)
+#define ESP_LOGD(...) ESP_LOGI(__VA_ARGS__)
+
+esp_err_t http_client_polling_get_handler(esp_http_client_event_t *evt)
 {
     Packet_t *response_data = *((Packet_t **)evt->user_data);
 
@@ -53,8 +55,7 @@ esp_err_t http_client_polling_handler(esp_http_client_event_t *evt)
         }
         else
         {
-            ESP_LOGE(TAG, "Chunked encoding is not supported");
-            return ESP_FAIL;
+            ESP_LOGD(TAG, "Chunked response %d %s", evt->data_len, (char *)evt->data);
         }
 
         break;
@@ -96,4 +97,9 @@ esp_err_t http_client_polling_handler(esp_http_client_event_t *evt)
         break;
     }
     return ESP_OK;
+}
+
+esp_err_t http_client_polling_post_handler(esp_http_client_event_t *evt) // Any will do fine, posting is not done with the handler, handler only handles receiving
+{
+    return http_client_polling_get_handler(evt);
 }

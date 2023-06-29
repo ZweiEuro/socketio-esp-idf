@@ -147,6 +147,7 @@ sio_client_t *sio_client_get_and_lock(const sio_client_id_t clientId)
 {
     if (!sio_client_is_inited(clientId))
     {
+        ESP_LOGW(TAG, "Client %d is not inited", clientId);
         return NULL;
     }
     else

@@ -21,6 +21,13 @@ void parse_packet(Packet_t *packet)
         ESP_LOGE(TAG, "Packet length is less than 1");
         return;
     }
+    if (strcmp(packet->data, "ok") == 0)
+    {
+        packet->eio_type = EIO_PACKET_OK_SERVER;
+        packet->sio_type = SIO_PACKET_NONE;
+        packet->json_start = NULL;
+        return;
+    }
 
     packet->eio_type = (eio_packet_t)(packet->data[0] - '0');
     packet->sio_type = SIO_PACKET_NONE;
@@ -60,7 +67,7 @@ void free_packet(Packet_t *packet)
 Packet_t *alloc_packet(const sio_client_id_t clientId, const char *data, size_t len)
 {
 
-    const sio_client_t *client = sio_client_get_and_lock(clientId);
+    sio_client_t *client = sio_client_get_and_lock(clientId);
     if (client == NULL)
     {
         ESP_LOGE(TAG, "Failed to get client");
@@ -124,4 +131,11 @@ void setSioType(Packet_t *packet, sio_packet_t type)
     }
     packet->sio_type = type;
     packet->data[1] = type + '0';
+}
+
+void print_packet(const Packet_t *packet)
+{
+    ESP_LOGI(TAG, "Packet: EIO:%d SIO:%d len:%d\n%s",
+             packet->eio_type, packet->sio_type, packet->len,
+             packet->data);
 }
