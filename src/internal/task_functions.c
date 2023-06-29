@@ -48,7 +48,7 @@ void sio_polling_task(void *pvParameters)
             // todo: emit DISCONNECTED event on any fail
             int r = esp_http_client_get_errno(client->polling_client);
             ESP_LOGE(TAG, "HTTP POLLING GET request failed: %s %i", esp_err_to_name(err), r);
-            break;
+            goto end;
         }
 
         int http_response_status_code = esp_http_client_get_status_code(client->polling_client);
@@ -61,24 +61,50 @@ void sio_polling_task(void *pvParameters)
         if (http_response_status_code != 200)
         {
             ESP_LOGW(TAG, "Polling HTTP request failed with status code %d", http_response_status_code);
-            break;
+            goto end;
         }
         if (http_response_content_length <= 0)
         {
             ESP_LOGW(TAG, "Polling HTTP request failed: No content returned.");
-            break;
+            goto end;
         }
 
         print_packet(response_packet);
-        ESP_LOG_BUFFER_HEX(TAG, response_packet->data, response_packet->len);
+        //ESP_LOG_BUFFER_HEX(TAG, response_packet->data, response_packet->len);
 
-        if (response_packet->eio_type == EIO_PACKET_NOOP)
+        switch (response_packet->eio_type)
         {
+        case EIO_PACKET_NOOP:
             if (response_packet->sio_type == SIO_PACKET_RS)
             {
-                ESP_LOGI(TAG, "Sio Separated package received");
-                break;
+                ESP_LOGI(TAG, "Sio Separated package received %s", response_packet->data);
+                goto end;
             }
+            break;
+        case EIO_PACKET_PING:
+            // send pong back
+
+            ESP_LOGI(TAG, "Received ping packet, sending pong back");
+
+            Packet_t *p = (Packet_t *)calloc(1, sizeof(Packet_t));
+            p->data = calloc(1, 2);
+            p->len = 2;
+            setEioType(p, EIO_PACKET_PONG);
+            esp_err_t ret = sio_send_packet(client->client_id, p);
+            if (ret != ESP_OK)
+            {
+                ESP_LOGE(TAG, "Failed to send PONG packet");
+            }
+            free_packet(p);
+            break;
+
+        case EIO_PACKET_CLOSE:
+            ESP_LOGI(TAG, "Received close packet");
+            goto end;
+            break;
+
+        default:
+            break;
         }
 
         free_packet(response_packet);
@@ -86,6 +112,7 @@ void sio_polling_task(void *pvParameters)
 
         // vTaskDelay(pdMS_TO_TICKS(sio_client->ping_interval_ms));
     }
+end:
     sio_client_t *client = sio_client_get_and_lock(*clientId);
 
     client->polling_client_running = false;

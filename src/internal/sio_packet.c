@@ -34,6 +34,12 @@ void parse_packet(Packet_t *packet)
     packet->sio_type = SIO_PACKET_NONE;
     packet->json_start = NULL;
 
+    if (packet->len <= 2)
+    {
+        ESP_LOGD(TAG, "Packet length is less than 2, single indicator");
+        return;
+    }
+
     switch (packet->eio_type)
     {
     case EIO_PACKET_OPEN:
@@ -55,6 +61,7 @@ void parse_packet(Packet_t *packet)
         break;
 
     default:
+
         if (packet->data[1] == ASCII_RS)
         {
             packet->sio_type = SIO_PACKET_RS;
@@ -63,7 +70,6 @@ void parse_packet(Packet_t *packet)
         {
             packet->sio_type = (sio_packet_t)(packet->data[1] - '0');
         }
-
         break;
     }
 }
@@ -127,6 +133,9 @@ Packet_t *alloc_packet(const sio_client_id_t clientId, const char *data, size_t 
     return packet;
 }
 
+
+
+
 void setEioType(Packet_t *packet, eio_packet_t type)
 {
     packet->eio_type = type;
@@ -143,6 +152,9 @@ void setSioType(Packet_t *packet, sio_packet_t type)
     packet->sio_type = type;
     packet->data[1] = type + '0';
 }
+
+
+
 
 void print_packet(const Packet_t *packet)
 {

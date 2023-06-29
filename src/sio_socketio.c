@@ -237,7 +237,8 @@ esp_err_t sio_send_packet(const sio_client_id_t clientId, const Packet_t *packet
 esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
 {
 
-    ESP_LOGI(TAG, "Sending package %s", packet->data);
+    ESP_LOGI(TAG, "Sending package");
+    print_packet(packet);
 
     Packet_t *response_packet = NULL;
     { // scope for first url without session id
@@ -249,7 +250,7 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
 
             // Form the request URL
 
-            ESP_LOGD(TAG, "Handshake URL: >%s< len:%d", url, strlen(url));
+            ESP_LOGD(TAG, "new client post URL: >%s< len:%d", url, strlen(url));
 
             esp_http_client_config_t config = {
                 .url = url,
@@ -270,9 +271,12 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
         {
             esp_http_client_set_url(client->posting_client, url);
         }
-        esp_http_client_set_header(client->posting_client, "Content-Type", "text/html");
-        esp_http_client_set_header(client->posting_client, "Accept", "text/plain");
+
+        esp_http_client_set_method(client->posting_client, HTTP_METHOD_POST);
+        esp_http_client_set_header(client->posting_client, "Accept", "*/*");
         esp_http_client_set_post_field(client->posting_client, packet->data, packet->len);
+
+        ESP_LOGI(TAG, "POST to %s >%s< len: %d", url, packet->data, packet->len);
 
         freeIfNotNull(url);
     }
@@ -280,7 +284,8 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
     esp_err_t err = esp_http_client_perform(client->posting_client);
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "HTTP GET request failed: %s, packet pointer %p ", esp_err_to_name(err), packet);
+        ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
+        print_packet(packet);
         return err;
     }
 
@@ -291,9 +296,6 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
         TAG, "HTTP POST Status = %d, content_length = %d",
         http_response_status_code,
         http_response_content_length);
-
-    ESP_LOGI(TAG, "HTTP POST:");
-    print_packet(packet);
 
     // allocate posting user if not present
     if (response_packet != NULL && response_packet->eio_type == EIO_PACKET_OK_SERVER)

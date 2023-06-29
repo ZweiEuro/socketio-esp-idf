@@ -105,6 +105,8 @@ extern "C"
 
     char *alloc_polling_get_url(const sio_client_t *client);
 
+    // send ping and pong
+
 #ifdef __cplusplus
 }
 #endif
