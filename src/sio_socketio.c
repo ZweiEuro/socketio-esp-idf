@@ -1,6 +1,7 @@
 #include <sio_socketio.h>
 #include <sio_types.h>
 #include <internal/sio_packet.h>
+#include <internal/task_functions.h>
 #include <utility.h>
 #include <cJSON.h>
 
@@ -14,8 +15,8 @@ esp_err_t handshake_websocket(sio_client_t *client);
 esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet);
 esp_err_t sio_send_packet_websocket(sio_client_t *client, const Packet_t *packet);
 
-char *alloc_handshake_get_url(const sio_client_t *client);
 char *alloc_post_url(const sio_client_t *client);
+char *alloc_handshake_get_url(const sio_client_t *client);
 
 esp_err_t sio_client_begin(const sio_client_id_t clientId)
 {
@@ -169,6 +170,22 @@ esp_err_t handshake_polling(sio_client_t *client)
     esp_err_t ret = sio_send_packet_polling(client, p);
     free_packet(p);
 
+    if (ret == ESP_OK)
+    {
+        ESP_LOGE(TAG, "Auth packet sent, start listening ");
+
+        // reuse not possible since user_data can't be set after init.
+        // newer idf version can do that but not the 5.0.2 (current stable)
+        esp_http_client_cleanup(client->handshake_client);
+        client->handshake_client = NULL;
+
+        client->polling_client_running = true;
+        xTaskCreate(&sio_polling_task, "sio_polling", 4096, (void *)&client->client_id, 6, NULL);
+
+        // Tranfer the handler over to the polling service
+        // start the polling service and throw events
+    }
+
     return ret;
 }
 
@@ -281,7 +298,7 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
     // allocate posting user if not present
     if (response_packet != NULL && response_packet->eio_type == EIO_PACKET_OK_SERVER)
     {
-        ESP_LOGI(TAG, "Response packet: %s, ok from server, connect succesful", response_packet->data);
+        ESP_LOGI(TAG, "Response packet: %s, ok from server, sent succesful", response_packet->data);
 
         free_packet(response_packet);
         return ESP_OK;
@@ -373,4 +390,9 @@ char *alloc_post_url(const sio_client_t *client)
 
     freeIfNotNull(token);
     return url;
+}
+
+char *alloc_polling_get_url(const sio_client_t *client)
+{
+    return alloc_post_url(client);
 }

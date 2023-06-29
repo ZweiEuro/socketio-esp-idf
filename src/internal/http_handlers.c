@@ -8,8 +8,6 @@
 
 static const char *TAG = "[sio:http_handlers]";
 
-#define ESP_LOGD(...) ESP_LOGI(__VA_ARGS__)
-
 esp_err_t http_client_polling_get_handler(esp_http_client_event_t *evt)
 {
     Packet_t *response_data = *((Packet_t **)evt->user_data);

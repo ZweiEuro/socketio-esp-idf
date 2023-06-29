@@ -32,7 +32,7 @@ extern "C"
 #define SIO_TOKEN_SIZE 7
 
 #define MAX_HTTP_RECV_BUFFER 512
-#define ASCII_RS ""
+#define ASCII_RS ''
 #define ASCII_RS_INDEX = 30
 
     typedef struct sio_client_t sio_client_t;
@@ -86,6 +86,7 @@ extern "C"
     };
 
     void unlockClient(sio_client_t *client);
+    void lockClient(sio_client_t *client);
 
     // Init with default values
     sio_client_id_t sio_client_init(const sio_client_config_t *config);
@@ -101,6 +102,8 @@ extern "C"
     sio_client_t *sio_client_get_and_lock(const sio_client_id_t clientId);
 
     bool sio_client_is_locked(const sio_client_id_t clientId);
+
+    char *alloc_polling_get_url(const sio_client_t *client);
 
 #ifdef __cplusplus
 }

@@ -21,6 +21,7 @@ void parse_packet(Packet_t *packet)
         ESP_LOGE(TAG, "Packet length is less than 1");
         return;
     }
+
     if (strcmp(packet->data, "ok") == 0)
     {
         packet->eio_type = EIO_PACKET_OK_SERVER;
@@ -33,8 +34,13 @@ void parse_packet(Packet_t *packet)
     packet->sio_type = SIO_PACKET_NONE;
     packet->json_start = NULL;
 
-    if (packet->eio_type == EIO_PACKET_MESSAGE)
+    switch (packet->eio_type)
     {
+    case EIO_PACKET_OPEN:
+        packet->json_start = packet->data + 1;
+        break;
+
+    case EIO_PACKET_MESSAGE:
         packet->sio_type = (sio_packet_t)(packet->data[1] - '0');
         // find the start of the json message, (the namespace might be in between but we just ignore it)
 
@@ -46,14 +52,19 @@ void parse_packet(Packet_t *packet)
                 break;
             }
         }
-    }
-    else
-    {
-        packet->json_start = packet->data + 1;
-    }
-    if (packet->json_start != NULL)
-    {
-        ESP_LOGI(TAG, "packet has no json content %s", packet->data);
+        break;
+
+    default:
+        if (packet->data[1] == ASCII_RS)
+        {
+            packet->sio_type = SIO_PACKET_RS;
+        }
+        else
+        {
+            packet->sio_type = (sio_packet_t)(packet->data[1] - '0');
+        }
+
+        break;
     }
 }
 

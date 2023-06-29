@@ -152,8 +152,7 @@ sio_client_t *sio_client_get_and_lock(const sio_client_id_t clientId)
     }
     else
     {
-        ESP_LOGW(TAG, "Locking client %d", clientId);
-        xSemaphoreTake(sio_client_map[clientId]->client_lock, portMAX_DELAY);
+        lockClient(sio_client_map[clientId]);
         return sio_client_map[clientId];
     }
 }
@@ -162,6 +161,12 @@ void unlockClient(sio_client_t *client)
 {
     ESP_LOGW(TAG, "Unlocking client %d", client->client_id);
     xSemaphoreGive(client->client_lock);
+}
+
+void lockClient(sio_client_t *client)
+{
+    ESP_LOGW(TAG, "Locking client %d", client->client_id);
+    xSemaphoreTake(client->client_lock, portMAX_DELAY);
 }
 
 bool sio_client_is_locked(const sio_client_id_t clientId)

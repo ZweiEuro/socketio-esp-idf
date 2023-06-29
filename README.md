@@ -2,6 +2,8 @@ Project based on https://github.com/socketio/socket.io-client-cpp/tree/3.1.0
 
 based on v3.1.0
 
+# BIG FAT WARNING
+I have no idea why but using \' for the json instead of \" makes socketio straight up deny the request. This was a lot of pain to figure out.
 ## What is this?
 
 The general socketio implementation is written for unix socket implementations. While lwip is based on this I wanted to get a component for esp up and running
