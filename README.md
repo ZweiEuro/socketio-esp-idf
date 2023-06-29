@@ -14,6 +14,11 @@ There will definitely not be any kind of connection reuse or anything similar.
 
 I am not using the usual subscription system of socketio. If you want to get events use esp_event internal manager with the events defined by me. 
 
+## Usage notice:
+Any function taking an client_id locks the struct internally. This includes the packet creation functions as they internally need the namespace in order to create proper payloads.
+
+When manually using them do not forget unlocking them.
+
 ## First connect
 
 The first connection message is generated and negotiated automatically. From this this library gets the session ID and various timeout values amongst other things. 

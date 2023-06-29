@@ -35,7 +35,9 @@ extern "C"
 #define ASCII_RS ""
 #define ASCII_RS_INDEX = 30
 
-    typedef const char *(*sio_auth_body_fptr_t)(const struct sio_client *client);
+    typedef struct sio_client_t sio_client_t;
+
+    typedef const char *(*sio_auth_body_fptr_t)(const struct sio_client_t *client);
     typedef struct
     {
         uint8_t eio_version;          /* if 0 uses CONFIG_EIO_VERSION */
@@ -50,9 +52,11 @@ extern "C"
 
     } sio_client_config_t;
 
-    typedef struct sio_client
+    struct sio_client_t
     {
         sio_client_id_t client_id;
+        SemaphoreHandle_t client_lock;
+
         uint8_t eio_version;
 
         char *server_address;
@@ -75,12 +79,13 @@ extern "C"
         // used internally
         esp_http_client_handle_t handshake_client; /* Used to establish first connection*/
 
-        esp_http_client_handle_t polling_client;  /* Used for continuous polling */
-        SemaphoreHandle_t polling_client_running; /* Used to stop polling client */
+        esp_http_client_handle_t polling_client; /* Used for continuous polling */
+        bool polling_client_running;
 
         esp_http_client_handle_t posting_client; /* Used for posting messages */
+    };
 
-    } sio_client_t;
+    void unlockClient(sio_client_t *client);
 
     // Init with default values
     sio_client_id_t sio_client_init(const sio_client_config_t *config);
@@ -91,8 +96,11 @@ extern "C"
     esp_err_t sio_send_packet(const sio_client_id_t clientId, const Packet_t *packet);
     esp_err_t sio_send_string(const sio_client_id_t clientId, const char *data, size_t len);
 
-    // Risky
-    sio_client_t *sio_client_get(const sio_client_id_t clientId);
+    // locks the semaphore, get it first before doing
+    // any writing else it will most certainly produce race conditions
+    sio_client_t *sio_client_get_and_lock(const sio_client_id_t clientId);
+
+    bool sio_client_is_locked(const sio_client_id_t clientId);
 
 #ifdef __cplusplus
 }

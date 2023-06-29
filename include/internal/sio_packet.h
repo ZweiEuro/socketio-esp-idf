@@ -29,6 +29,7 @@ extern "C"
 
     void parse_packet(Packet_t *packet);
 
+    // locks internally
     Packet_t *alloc_packet(const sio_client_id_t clientId, const char *data, size_t len);
 
     void free_packet(Packet_t *packet);

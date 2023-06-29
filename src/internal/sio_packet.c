@@ -60,10 +60,11 @@ void free_packet(Packet_t *packet)
 Packet_t *alloc_packet(const sio_client_id_t clientId, const char *data, size_t len)
 {
 
-    const sio_client_t *client = sio_client_get(clientId);
+    const sio_client_t *client = sio_client_get_and_lock(clientId);
     if (client == NULL)
     {
         ESP_LOGE(TAG, "Failed to get client");
+        unlockClient(client);
         return NULL;
     }
 
@@ -71,6 +72,8 @@ Packet_t *alloc_packet(const sio_client_id_t clientId, const char *data, size_t 
     if (packet == NULL)
     {
         ESP_LOGE(TAG, "Failed to allocate memory for packet");
+        unlockClient(client);
+
         return NULL;
     }
     // we stick '44' at the start every time
@@ -86,6 +89,8 @@ Packet_t *alloc_packet(const sio_client_id_t clientId, const char *data, size_t 
     {
         ESP_LOGE(TAG, "Failed to allocate memory for packet data");
         free_packet(packet);
+        unlockClient(client);
+
         return NULL;
     }
 
@@ -99,6 +104,7 @@ Packet_t *alloc_packet(const sio_client_id_t clientId, const char *data, size_t 
     }
 
     parse_packet(packet);
+    unlockClient(client);
 
     return packet;
 }

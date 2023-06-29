@@ -47,6 +47,11 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
     sio_client_t *client = sio_client_map[slot];
 
     client->client_id = slot;
+    client->client_lock = xSemaphoreCreateBinary();
+
+    assert(client->client_lock != NULL && "Could not create client lock");
+    xSemaphoreGive(client->client_lock);
+
     client->eio_version = config->eio_version == 0 ? SIO_DEFAULT_EIO_VERSION : config->eio_version;
 
     client->server_address = strdup(config->server_address);
@@ -62,7 +67,7 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
 
     client->server_session_id = NULL;
     client->handshake_client = NULL;
-    client->alloc_auth_body_cb = NULL;
+    client->alloc_auth_body_cb = config->alloc_auth_body_cb;
 
     // all of the clients need to be null
 
@@ -70,9 +75,7 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
     client->posting_client = NULL;
     client->handshake_client = NULL;
 
-    client->polling_client_running = xSemaphoreCreateBinary();
-
-    assert(client->polling_client_running != NULL && "Could not create polling client running semaphore");
+    client->polling_client_running = false;
 
     return (sio_client_id_t)slot;
 }
@@ -100,7 +103,7 @@ void sio_client_destroy(sio_client_id_t clientId)
     freeIfNotNull(client->server_session_id);
 
     // Remove the semaphore, cleanup all handlers
-    vSemaphoreDelete(client->polling_client_running);
+    vSemaphoreDelete(client->client_lock);
     if (client->polling_client != NULL)
     {
         ESP_ERROR_CHECK(esp_http_client_cleanup(client->polling_client));
@@ -140,7 +143,43 @@ bool sio_client_is_inited(const sio_client_id_t clientId)
     return sio_client_map[clientId] != NULL;
 }
 
-sio_client_t *sio_client_get(const sio_client_id_t clientId)
+sio_client_t *sio_client_get_and_lock(const sio_client_id_t clientId)
 {
-    return sio_client_map[clientId];
+    if (!sio_client_is_inited(clientId))
+    {
+        return NULL;
+    }
+    else
+    {
+        ESP_LOGW(TAG, "Locking client %d", clientId);
+        xSemaphoreTake(sio_client_map[clientId]->client_lock, portMAX_DELAY);
+        return sio_client_map[clientId];
+    }
+}
+
+void unlockClient(sio_client_t *client)
+{
+    ESP_LOGW(TAG, "Unlocking client %d", client->client_id);
+    xSemaphoreGive(client->client_lock);
+}
+
+bool sio_client_is_locked(const sio_client_id_t clientId)
+{
+
+    if (!sio_client_is_inited(clientId))
+    {
+        return NULL;
+    }
+    else
+    {
+        if (xSemaphoreTake(sio_client_map[clientId]->client_lock, (TickType_t)0) == pdTRUE)
+        {
+            unlockClient(sio_client_map[clientId]);
+            return false;
+        }
+        else
+        {
+            return true;
+        }
+    }
 }

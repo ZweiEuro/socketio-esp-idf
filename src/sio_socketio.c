@@ -19,7 +19,7 @@ char *alloc_handshake_get_url(const sio_client_t *client);
 esp_err_t sio_client_begin(const sio_client_id_t clientId)
 {
 
-    sio_client_t *client = sio_client_get(clientId);
+    sio_client_t *client = sio_client_get_and_lock(clientId);
 
     esp_err_t handshake_result = ESP_FAIL;
     uint16_t current_attempt = 1;
@@ -31,7 +31,8 @@ esp_err_t sio_client_begin(const sio_client_id_t clientId)
         handshake_result = handshake(client);
         if (handshake_result == ESP_OK)
         {
-            return ESP_OK;
+            handshake_result = ESP_OK;
+            break;
         }
         ESP_LOGI(TAG, "Handshake failed, retrying in %d ms", client->retry_interval_ms);
         vTaskDelay(client->retry_interval_ms / portTICK_PERIOD_MS);
@@ -39,7 +40,7 @@ esp_err_t sio_client_begin(const sio_client_id_t clientId)
     }
 
     ESP_LOGI(TAG, "Failed to connect to %s %s", client->server_address, esp_err_to_name(handshake_result));
-
+    unlockClient(client);
     return handshake_result;
 }
 
@@ -146,6 +147,8 @@ esp_err_t handshake_polling(sio_client_t *client)
 
     const char *auth_data = client->alloc_auth_body_cb == NULL ? "" : client->alloc_auth_body_cb(client);
 
+    unlockClient(client);
+
     Packet_t *p = alloc_packet(client->client_id, auth_data, strlen(auth_data));
     setSioType(p, SIO_PACKET_CONNECT);
 
@@ -172,32 +175,40 @@ esp_err_t sio_send_string(const sio_client_id_t clientId, const char *data, size
 
 esp_err_t sio_send_packet(const sio_client_id_t clientId, const Packet_t *packet)
 {
-    sio_client_t *client = sio_client_get(clientId);
+    sio_client_t *client = sio_client_get_and_lock(clientId);
 
     if (client->server_session_id == NULL)
     {
         ESP_LOGE(TAG, "Server session id not set, was this client initialized?");
+        unlockClient(client);
+
         return ESP_FAIL;
     }
+    esp_err_t ret = ESP_FAIL;
 
     if (client->transport == SIO_TRANSPORT_WEBSOCKETS)
     {
-        return sio_send_packet_websocket(client, packet);
+        ret = sio_send_packet_websocket(client, packet);
     }
     else if (client->transport == SIO_TRANSPORT_POLLING)
     {
-        return sio_send_packet_polling(client, packet);
+        ret = sio_send_packet_polling(client, packet);
     }
     else
     {
-        return ESP_ERR_INVALID_ARG;
+        ret = ESP_ERR_INVALID_ARG;
     }
+
+    unlockClient(client);
+    return ret;
 }
 
 esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
 {
 
     ESP_LOGI(TAG, "Sending package %s", packet->data);
+
+    // allocate posting user if not present
 
     return ESP_OK;
 
