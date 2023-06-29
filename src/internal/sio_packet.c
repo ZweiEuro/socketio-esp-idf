@@ -44,8 +44,10 @@ void parse_packet(Packet_t *packet)
     {
         packet->json_start = packet->data + 1;
     }
-
-    assert(packet->json_start != NULL);
+    if (packet->json_start != NULL)
+    {
+        ESP_LOGI(TAG, "packet has no json content %s", packet->data);
+    }
 }
 
 void free_packet(Packet_t *packet)
