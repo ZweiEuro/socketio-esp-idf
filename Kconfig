@@ -30,12 +30,6 @@ menu "socketio-esp-idf"
 
     
 
-    config SIO_HTTP_RECV_BUFFER
-        int "Recv buffer size"
-        range 512 4096 
-        default 512
-        help
-            Receiver buffer allocation (stack)
 
     config SIO_DEFAULT_MESSAGE_QUEUE_SIZE
         int "Message queue size"

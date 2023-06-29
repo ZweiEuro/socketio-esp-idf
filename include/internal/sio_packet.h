@@ -29,7 +29,14 @@ extern "C"
 
     void parse_packet(Packet_t *packet);
 
+    Packet_t *alloc_packet(const sio_client_id_t clientId, const char *data, size_t len);
+
     void free_packet(Packet_t *packet);
+
+    // util
+
+    void setEioType(Packet_t *packet, eio_packet_t type);
+    void setSioType(Packet_t *packet, sio_packet_t type);
 
 #ifdef __cplusplus
 }

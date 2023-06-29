@@ -47,7 +47,7 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
     sio_client_t *client = sio_client_map[slot];
 
     client->client_id = slot;
-    client->eio_version = config->eio_version == NULL ? SIO_DEFAULT_EIO_VERSION : config->eio_version;
+    client->eio_version = config->eio_version == 0 ? SIO_DEFAULT_EIO_VERSION : config->eio_version;
 
     client->server_address = strdup(config->server_address);
     client->sio_url_path = strdup(config->sio_url_path == NULL ? SIO_DEFAULT_SIO_URL_PATH : config->sio_url_path);
@@ -61,11 +61,23 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
     client->server_ping_timeout_ms = 0;
 
     client->server_session_id = NULL;
+    client->handshake_client = NULL;
+    client->alloc_auth_body_cb = NULL;
+
+    // all of the clients need to be null
+
+    client->polling_client = NULL;
+    client->posting_client = NULL;
+    client->handshake_client = NULL;
+
+    client->polling_client_running = xSemaphoreCreateBinary();
+
+    assert(client->polling_client_running != NULL && "Could not create polling client running semaphore");
 
     return (sio_client_id_t)slot;
 }
 
-void sio_client_destroy(const sio_client_id_t clientId)
+void sio_client_destroy(sio_client_id_t clientId)
 {
     if (!sio_client_is_inited(clientId))
     {
@@ -74,14 +86,35 @@ void sio_client_destroy(const sio_client_id_t clientId)
 
     sio_client_t *client = sio_client_map[clientId];
 
+    if (client->polling_client_running)
+    {
+        ESP_LOGE(TAG, "Polling client is running, stop it first");
+        return;
+    }
+
     freeIfNotNull(client->server_address);
     freeIfNotNull(client->sio_url_path);
     freeIfNotNull(client->nspc);
 
     // could be allocated
     freeIfNotNull(client->server_session_id);
-    freeIfNotNull(client);
 
+    // Remove the semaphore, cleanup all handlers
+    vSemaphoreDelete(client->polling_client_running);
+    if (client->polling_client != NULL)
+    {
+        ESP_ERROR_CHECK(esp_http_client_cleanup(client->polling_client));
+    }
+    if (client->posting_client != NULL)
+    {
+        ESP_ERROR_CHECK(esp_http_client_cleanup(client->posting_client));
+    }
+    if (client->handshake_client != NULL)
+    {
+        ESP_ERROR_CHECK(esp_http_client_cleanup(client->handshake_client));
+    }
+
+    freeIfNotNull(client);
     sio_client_map[clientId] = NULL;
     // if all of them are freed then free the map
 
