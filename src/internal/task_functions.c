@@ -18,6 +18,14 @@ void sio_polling_task(void *pvParameters)
     while (true)
     {
         sio_client_t *client = sio_client_get_and_lock(*clientId);
+
+        if (!client->polling_client_running)
+        {
+            ESP_LOGI(TAG, "Stopping polling task");
+            unlockClient(client);
+            break;
+        }
+
         {
             char *url = alloc_polling_get_url(client);
 
@@ -37,7 +45,7 @@ void sio_polling_task(void *pvParameters)
             {
                 esp_http_client_set_url(client->polling_client, url);
             }
-            ESP_LOGI(TAG, "Polling URL: %s", url);
+            ESP_LOGD(TAG, "Polling URL: %s", url);
             freeIfNotNull(url);
         }
         unlockClient(client);
@@ -53,10 +61,6 @@ void sio_polling_task(void *pvParameters)
 
         int http_response_status_code = esp_http_client_get_status_code(client->polling_client);
         int http_response_content_length = esp_http_client_get_content_length(client->polling_client);
-        ESP_LOGI(
-            TAG, "HTTP GET Status = %d, content_length = %d",
-            http_response_status_code,
-            http_response_content_length);
 
         if (http_response_status_code != 200)
         {
@@ -70,21 +74,21 @@ void sio_polling_task(void *pvParameters)
         }
 
         print_packet(response_packet);
-        //ESP_LOG_BUFFER_HEX(TAG, response_packet->data, response_packet->len);
+        // ESP_LOG_BUFFER_HEX(TAG, response_packet->data, response_packet->len);
 
         switch (response_packet->eio_type)
         {
         case EIO_PACKET_NOOP:
             if (response_packet->sio_type == SIO_PACKET_RS)
             {
-                ESP_LOGI(TAG, "Sio Separated package received %s", response_packet->data);
+                ESP_LOGI(TAG, "Sio Separated package received %s, TODO handle", response_packet->data);
                 goto end;
             }
             break;
         case EIO_PACKET_PING:
             // send pong back
 
-            ESP_LOGI(TAG, "Received ping packet, sending pong back");
+            ESP_LOGD(TAG, "Received ping packet, sending pong back");
 
             Packet_t *p = (Packet_t *)calloc(1, sizeof(Packet_t));
             p->data = calloc(1, 2);
@@ -99,20 +103,39 @@ void sio_polling_task(void *pvParameters)
             break;
 
         case EIO_PACKET_CLOSE:
-            ESP_LOGI(TAG, "Received close packet");
+            ESP_LOGD(TAG, "Received close packet");
             goto end;
             break;
+
+        case EIO_PACKET_MESSAGE:
+            sio_event_data_t event_data = {
+                .client_id = *clientId,
+                .packet = response_packet};
+
+            esp_event_post(SIO_EVENT, SIO_EVENT_RECEIVED_MESSAGE, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
+
+            // purposefully lose the package
+            response_packet = NULL;
 
         default:
             break;
         }
 
-        free_packet(response_packet);
-        response_packet = NULL;
+        if (response_packet != NULL)
+        {
 
-        // vTaskDelay(pdMS_TO_TICKS(sio_client->ping_interval_ms));
+            free_packet(response_packet);
+            response_packet = NULL;
+        }
     }
 end:
+
+    sio_event_data_t event_data = {
+        .client_id = *clientId,
+        .packet = NULL};
+
+    esp_event_post(SIO_EVENT, SIO_EVENT_DISCONNECTED, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
+
     sio_client_t *client = sio_client_get_and_lock(*clientId);
 
     client->polling_client_running = false;

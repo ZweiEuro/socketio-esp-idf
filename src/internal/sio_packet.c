@@ -22,7 +22,7 @@ void parse_packet(Packet_t *packet)
         return;
     }
 
-    if (strcmp(packet->data, "ok") == 0)
+    if (packet->len == 2 && packet->data[0] == 'o' && packet->data[1] == 'k')
     {
         packet->eio_type = EIO_PACKET_OK_SERVER;
         packet->sio_type = SIO_PACKET_NONE;
@@ -133,9 +133,6 @@ Packet_t *alloc_packet(const sio_client_id_t clientId, const char *data, size_t 
     return packet;
 }
 
-
-
-
 void setEioType(Packet_t *packet, eio_packet_t type)
 {
     packet->eio_type = type;
@@ -152,9 +149,6 @@ void setSioType(Packet_t *packet, sio_packet_t type)
     packet->sio_type = type;
     packet->data[1] = type + '0';
 }
-
-
-
 
 void print_packet(const Packet_t *packet)
 {

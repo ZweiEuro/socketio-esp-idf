@@ -85,9 +85,6 @@ esp_err_t http_client_polling_get_handler(esp_http_client_event_t *evt)
         break;
     case HTTP_EVENT_REDIRECT:
         ESP_LOGD(TAG, "HTTP_EVENT_REDIRECT");
-        esp_http_client_set_header(evt->client, "From", "user@example.com");
-        esp_http_client_set_header(evt->client, "Accept", "text/html");
-        esp_http_client_set_redirection(evt->client);
         break;
 
     default:

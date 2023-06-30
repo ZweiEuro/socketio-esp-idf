@@ -43,3 +43,29 @@ For the initial handshake a http client is allocated, its used to connect to the
 For polling the handshake client is reused.
 
 For posting a new client is created when doing it for the first time at which point it is also reused.
+
+# Events:
+
+Events get a "sio_event_data_t" struct as argument. If applicable the packet will != null if ther is a message in it. 
+According to esp docs the event data will clear itself, though you will have to free the packet with free_packet yourself.
+
+Notice This also means that you are responsible to clear any package that might get sent over, else you will have a memory leak.
+
+Minimal handler:
+
+```cpp
+    static void sio_event_handler(void *arg, esp_event_base_t event_base,
+                                  int32_t event_id, void *event_data)
+    {
+        sio_event_data_t *evt_data = (sio_event_data_t *)event_data;
+
+        ESP_LOGI(TAG, "sio_event_handler %d client: %d p: %p", event_id, evt_data->client_id, evt_data->packet);
+
+        if (evt_data->packet != NULL)
+        {
+            free_packet(evt_data->packet);
+        }
+    }
+```
+
+register it to `ESP_EVENT_ANY_ID`

@@ -59,9 +59,6 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
     client->nspc = strdup(config->nspc == NULL ? SIO_DEFAULT_SIO_NAMESPACE : config->nspc);
     client->transport = config->transport;
 
-    client->max_connect_retries = config->max_connect_retries;
-    client->retry_interval_ms = config->retry_interval_ms;
-
     client->server_ping_interval_ms = 0;
     client->server_ping_timeout_ms = 0;
 
@@ -159,13 +156,13 @@ sio_client_t *sio_client_get_and_lock(const sio_client_id_t clientId)
 
 void unlockClient(sio_client_t *client)
 {
-    ESP_LOGW(TAG, "Unlocking client %d", client->client_id);
+    ESP_LOGD(TAG, "Unlocking client %d", client->client_id);
     xSemaphoreGive(client->client_lock);
 }
 
 void lockClient(sio_client_t *client)
 {
-    ESP_LOGW(TAG, "Locking client %d", client->client_id);
+    ESP_LOGD(TAG, "Locking client %d", client->client_id);
     xSemaphoreTake(client->client_lock, portMAX_DELAY);
 }
 
