@@ -28,11 +28,11 @@ esp_err_t sio_client_begin(const sio_client_id_t clientId)
 
     if (handshake_result == ESP_OK)
     {
-        ESP_LOGI(TAG, "Connected to %s", client->server_address);
+        ESP_LOGD(TAG, "Connected to %s", client->server_address);
     }
     else
     {
-        ESP_LOGI(TAG, "Failed to connect to %s %s", client->server_address, esp_err_to_name(handshake_result));
+        ESP_LOGD(TAG, "Failed to connect to %s %s", client->server_address, esp_err_to_name(handshake_result));
     }
     unlockClient(client);
     return handshake_result;
@@ -284,7 +284,7 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
     // allocate posting user if not present
     if (response_packet != NULL && response_packet->eio_type == EIO_PACKET_OK_SERVER)
     {
-        ESP_LOGI(TAG, "Response packet: %s, ok from server, sent succesful", response_packet->data);
+        ESP_LOGD(TAG, "Response packet: %s, ok from server, sent succesful", response_packet->data);
 
         free_packet(response_packet);
 #if REBUILD_CLIENT_POST
@@ -313,7 +313,7 @@ esp_err_t sio_send_packet_websocket(sio_client_t *client, const Packet_t *packet
 
 // close
 
-void sio_client_close(sio_client_id_t clientId)
+esp_err_t sio_client_close(sio_client_id_t clientId)
 {
 
     Packet_t *p = (Packet_t *)calloc(1, sizeof(Packet_t));
@@ -323,6 +323,14 @@ void sio_client_close(sio_client_id_t clientId)
 
     // close the listener and wait for it to close
     sio_client_t *client = sio_client_get_and_lock(clientId);
+
+    if (client->server_session_id == NULL)
+    {
+        ESP_LOGE(TAG, "Server session id not set, socket not connected?");
+        unlockClient(client);
+        return ESP_FAIL;
+    }
+
     client->polling_client_running = false;
     unlockClient(client);
     // wait until the task has deleted itself
@@ -332,8 +340,16 @@ void sio_client_close(sio_client_id_t clientId)
     }
 
     sio_send_packet(clientId, p);
+    return ESP_OK;
 }
 
+bool sio_client_is_connected(sio_client_id_t clientId)
+{
+    sio_client_t *client = sio_client_get_and_lock(clientId);
+    bool ret = client->server_session_id != NULL && client->polling_client_running;
+    unlockClient(client);
+    return ret;
+}
 // util
 
 char *alloc_handshake_get_url(const sio_client_t *client)

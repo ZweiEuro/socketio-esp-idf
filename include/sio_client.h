@@ -92,7 +92,8 @@ extern "C"
     void sio_client_destroy(sio_client_id_t clientId);
 
     bool sio_client_is_inited(const sio_client_id_t clientId);
-    void sio_client_close(const sio_client_id_t clientId);
+    bool sio_client_is_connected(sio_client_id_t clientId);
+    esp_err_t sio_client_close(const sio_client_id_t clientId);
 
     esp_err_t sio_send_packet(const sio_client_id_t clientId, const Packet_t *packet);
     esp_err_t sio_send_string(const sio_client_id_t clientId, const char *data, size_t len);

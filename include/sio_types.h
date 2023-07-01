@@ -7,7 +7,7 @@ extern "C"
 
 #include <esp_types.h>
 
-    typedef uint8_t sio_client_id_t;
+    typedef int8_t sio_client_id_t;
 
     // low level message
     typedef enum

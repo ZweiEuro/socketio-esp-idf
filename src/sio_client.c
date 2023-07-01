@@ -14,6 +14,11 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
     if (sio_client_map == NULL)
     {
         sio_client_map = calloc(SIO_MAX_PARALLEL_SOCKETS, sizeof(sio_client_t *));
+        // set all pointers to null
+        for (uint8_t i = 0; i < SIO_MAX_PARALLEL_SOCKETS; i++)
+        {
+            sio_client_map[i] = NULL;
+        }
     }
 
     // some basic error checks
@@ -38,13 +43,12 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
     if (slot == SIO_MAX_PARALLEL_SOCKETS)
     {
         ESP_LOGE(TAG, "No slot available, clear a socket or increase the SIO_MAX_PARALLEL_SOCKETS define");
-        return 0;
+        return -1;
     }
 
     // copy from config everyting over
-    sio_client_map[slot] = calloc(1, sizeof(sio_client_t));
 
-    sio_client_t *client = sio_client_map[slot];
+    sio_client_t *client = calloc(1, sizeof(sio_client_t));
 
     client->client_id = slot;
     client->client_lock = xSemaphoreCreateBinary();
@@ -73,6 +77,10 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
     client->handshake_client = NULL;
 
     client->polling_client_running = false;
+
+    sio_client_map[slot] = client;
+
+    ESP_LOGD(TAG, "inited client %d @ %p", slot, client);
 
     return (sio_client_id_t)slot;
 }
@@ -137,32 +145,44 @@ void sio_client_destroy(sio_client_id_t clientId)
 
 bool sio_client_is_inited(const sio_client_id_t clientId)
 {
+
+    if (sio_client_map == NULL)
+    {
+        return false;
+    }
+
+    if (clientId >= SIO_MAX_PARALLEL_SOCKETS || clientId < 0)
+    {
+        return false;
+    }
+
     return sio_client_map[clientId] != NULL;
 }
 
 sio_client_t *sio_client_get_and_lock(const sio_client_id_t clientId)
 {
-    if (!sio_client_is_inited(clientId))
-    {
-        ESP_LOGW(TAG, "Client %d is not inited", clientId);
-        return NULL;
-    }
-    else
+    ESP_LOGD(TAG, "Getting and locking client %d", clientId);
+    if (sio_client_is_inited(clientId))
     {
         lockClient(sio_client_map[clientId]);
         return sio_client_map[clientId];
+    }
+    else
+    {
+        ESP_LOGW(TAG, "Client %d is not inited", clientId);
+        return NULL;
     }
 }
 
 void unlockClient(sio_client_t *client)
 {
-    ESP_LOGD(TAG, "Unlocking client %d", client->client_id);
+    ESP_LOGD(TAG, "Unlocking client %p", client);
     xSemaphoreGive(client->client_lock);
 }
 
 void lockClient(sio_client_t *client)
 {
-    ESP_LOGD(TAG, "Locking client %d", client->client_id);
+    ESP_LOGD(TAG, "Locking client %p", client);
     xSemaphoreTake(client->client_lock, portMAX_DELAY);
 }
 

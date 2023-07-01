@@ -73,8 +73,8 @@ esp_err_t http_client_polling_get_handler(esp_http_client_event_t *evt)
         esp_err_t err = esp_tls_get_and_clear_last_error((esp_tls_error_handle_t)evt->data, &mbedtls_err, NULL);
         if (err != 0)
         {
-            ESP_LOGI(TAG, "Last esp error code: 0x%x", err);
-            ESP_LOGI(TAG, "Last mbedtls failure: 0x%x", mbedtls_err);
+            ESP_LOGD(TAG, "Last esp error code: 0x%x", err);
+            ESP_LOGD(TAG, "Last mbedtls failure: 0x%x", mbedtls_err);
             if (response_data != NULL)
             {
                 freeIfNotNull(response_data->data);
