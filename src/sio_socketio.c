@@ -265,8 +265,6 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
                 ESP_LOGE(TAG, "Failed to initialize HTTP client");
                 return ESP_FAIL;
             }
-
-            ESP_LOGI(TAG, "Initialized HTTP client for poll posting");
         }
         esp_http_client_set_header(client->posting_client, "Content-Type", "text/plain;charset=UTF-8");
         esp_http_client_set_header(client->posting_client, "Accept", "*/*");
@@ -294,8 +292,7 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
     // allocate posting user if not present
     if (packets[0]->eio_type == EIO_PACKET_OK_SERVER)
     {
-        ESP_LOGI(TAG, "Ok from server response array %p", packets);
-        print_packet_arr(packets);
+        ESP_LOGD(TAG, "Ok from server response array %p", packets);
     }
     else
     {

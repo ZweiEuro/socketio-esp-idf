@@ -21,7 +21,7 @@ esp_err_t http_client_polling_get_handler(esp_http_client_event_t *evt)
         ESP_LOGD(TAG, "HTTP_EVENT_ERROR");
         break;
     case HTTP_EVENT_ON_CONNECTED:
-        ESP_LOGI(TAG, "HTTP_EVENT_ON_CONNECTED with pointer %p", recv_buffer);
+        ESP_LOGD(TAG, "HTTP_EVENT_ON_CONNECTED with pointer %p", recv_buffer);
         break;
     case HTTP_EVENT_HEADER_SENT:
         ESP_LOGD(TAG, "HTTP_EVENT_HEADER_SENT");
@@ -60,12 +60,12 @@ esp_err_t http_client_polling_get_handler(esp_http_client_event_t *evt)
 
         break;
     case HTTP_EVENT_ON_FINISH:
-        ESP_LOGI(TAG, "HTTP_EVENT_ON_FINISH");
+        ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
 
         // parse the data into packets, multi packet support
         if (recv_buffer != NULL && recv_length > 0)
         {
-            ESP_LOGI(TAG, "Received %i bytes at %p of data %s",
+            ESP_LOGD(TAG, "Received %i bytes at %p of data %s",
                      recv_length, recv_buffer, (char *)recv_buffer);
 
             recv_buffer[recv_length] = ASCII_RS;
@@ -79,7 +79,7 @@ esp_err_t http_client_polling_get_handler(esp_http_client_event_t *evt)
                 goto freeBuffers;
             }
 
-            ESP_LOGI(TAG, "Received %i bytes of data  destination for arr pointer %p, %s,",
+            ESP_LOGD(TAG, "Received %i bytes of data  destination for arr pointer %p, %s,",
                      recv_length, evt->user_data, (char *)recv_buffer);
 
             // count how many packets ( by scanning for ASCII_RS)
@@ -106,7 +106,7 @@ esp_err_t http_client_polling_get_handler(esp_http_client_event_t *evt)
             // allocate the response array of pointers
             response_arr = (PacketPointerArray_t)calloc(rs_count + 1, sizeof(Packet_t *));
 
-            ESP_LOGW(TAG, "Allocated l:%d packets array %p", rs_count, response_arr);
+            ESP_LOGD(TAG, "Allocated l:%d packets array %p", rs_count, response_arr);
 
             if (response_arr == NULL)
             {
@@ -128,7 +128,7 @@ esp_err_t http_client_polling_get_handler(esp_http_client_event_t *evt)
 
                 Packet_t *new_packet_p = (Packet_t *)calloc(1, sizeof(Packet_t));
 
-                ESP_LOGE(TAG, "Allocated packet %p", new_packet_p);
+                ESP_LOGD(TAG, "Allocated packet %p", new_packet_p);
 
                 new_packet_p->data = strdup(packet_start);
                 new_packet_p->len = strlen(packet_start);
@@ -139,7 +139,7 @@ esp_err_t http_client_polling_get_handler(esp_http_client_event_t *evt)
                 packet_start = strtok(NULL, ASCII_RS_STRING);
             }
             *((PacketPointerArray_t *)evt->user_data) = response_arr;
-            print_packet_arr(response_arr);
+            // print_packet_arr(response_arr);
         }
     freeBuffers:
         if (recv_buffer != NULL)

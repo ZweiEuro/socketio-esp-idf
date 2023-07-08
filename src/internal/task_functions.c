@@ -75,64 +75,60 @@ void sio_polling_task(void *pvParameters)
             goto end;
         }
 
-        print_packet_arr(response_packets);
-        free_packet_arr(&response_packets);
+        // go through all messages and handle all non message related messages
 
-        continue;
-#if 0
-        switch (response_packet->eio_type)
+        for (int i = 0; i < get_array_size(response_packets); i++)
         {
-        case EIO_PACKET_NOOP:
-            if (response_packet->sio_type == SIO_PACKET_RS)
+
+            Packet_t *response_packet = response_packets[0];
+
+            switch (response_packet->eio_type)
             {
-                ESP_LOGI(TAG, "Sio Separated package received %s, TODO handle", response_packet->data);
+            case EIO_PACKET_PING:
+                // send pong back
+
+                ESP_LOGD(TAG, "Received ping packet, sending pong back");
+
+                Packet_t *p = (Packet_t *)calloc(1, sizeof(Packet_t));
+                p->data = calloc(1, 2);
+                p->len = 2;
+                setEioType(p, EIO_PACKET_PONG);
+                esp_err_t ret = sio_send_packet(client->client_id, p);
+                if (ret != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "Failed to send PONG packet");
+                }
+                free_packet(&p);
+                break;
+
+            case EIO_PACKET_CLOSE:
+                ESP_LOGD(TAG, "Received close packet");
                 goto end;
+                break;
+
+            case EIO_PACKET_MESSAGE:
+                // do nothing, will get forwarded
+                break;
+
+            default:
+                ESP_LOGW(TAG, "unhandled packet type %d", response_packet->eio_type);
+                break;
             }
-            break;
-        case EIO_PACKET_PING:
-            // send pong back
-
-            ESP_LOGI(TAG, "Received ping packet, sending pong back");
-
-            Packet_t *p = (Packet_t *)calloc(1, sizeof(Packet_t));
-            p->data = calloc(1, 2);
-            p->len = 2;
-            setEioType(p, EIO_PACKET_PONG);
-            esp_err_t ret = sio_send_packet(client->client_id, p);
-            if (ret != ESP_OK)
-            {
-                ESP_LOGE(TAG, "Failed to send PONG packet");
-            }
-            free_packet(&p);
-            break;
-
-        case EIO_PACKET_CLOSE:
-            ESP_LOGD(TAG, "Received close packet");
-            goto end;
-            break;
-
-        case EIO_PACKET_MESSAGE:
-            sio_event_data_t event_data = {
-                .client_id = *clientId,
-                .packet = response_packet};
-
-            print_packet(response_packet);
-            esp_event_post(SIO_EVENT, SIO_EVENT_RECEIVED_MESSAGE, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
-
-            // purposefully lose the package
-            response_packet = NULL;
-
-        default:
-            break;
         }
 
-        if (response_packet != NULL)
+        if (get_array_size(response_packets) == 1 && response_packets[0]->eio_type != EIO_PACKET_MESSAGE)
         {
-
-            free_packet(&response_packet);
-            response_packet = NULL;
+            ESP_LOGD(TAG, "Single packet no messages");
+            continue;
         }
-#endif
+
+        ESP_LOGI(TAG, "Poller Received %d packets", get_array_size(response_packets));
+        sio_event_data_t event_data = {
+            .client_id = *clientId,
+            .packets_pointer = response_packets,
+            .len = get_array_size(response_packets)};
+
+        esp_event_post(SIO_EVENT, SIO_EVENT_RECEIVED_MESSAGE, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
     }
 end:
 

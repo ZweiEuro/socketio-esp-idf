@@ -71,7 +71,7 @@ void free_packet(Packet_t **packet_p_p)
 {
     Packet_t *packet_p = *packet_p_p;
 
-      if (packet_p->data != NULL)
+    if (packet_p->data != NULL)
     {
         free(packet_p->data);
         packet_p->data = NULL;
@@ -100,7 +100,7 @@ void free_packet_arr(PacketPointerArray_t *arr_p)
 {
     PacketPointerArray_t arr = *arr_p;
 
-    print_packet_arr(arr);
+    // print_packet_arr(arr);
 
     int i = 0;
     while (arr[i] != NULL)
