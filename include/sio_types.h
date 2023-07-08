@@ -26,7 +26,6 @@ extern "C"
     // packets that talk about events
     typedef enum
     {
-        SIO_PACKET_RS = -2,
         SIO_PACKET_NONE = -1,
         SIO_PACKET_CONNECT = 0,
         SIO_PACKET_DISCONNECT,

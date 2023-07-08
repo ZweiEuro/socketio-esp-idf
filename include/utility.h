@@ -12,7 +12,7 @@ extern "C"
 #include "esp_err.h"
 
     char *alloc_random_string(const size_t length);
-    void freeIfNotNull(void *ptr);
+    void freeIfNotNull(void **ptr);
 
     // undef
 

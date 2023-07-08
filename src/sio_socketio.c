@@ -64,8 +64,8 @@ esp_err_t handshake_polling(sio_client_t *client)
         return ESP_FAIL;
     }
 
-    static Packet_t *packet = NULL;
-    packet = NULL;
+    static PacketPointerArray_t packets;
+    packets = NULL;
     { // scope for first url without session id
 
         char *url = alloc_handshake_get_url(client);
@@ -80,7 +80,7 @@ esp_err_t handshake_polling(sio_client_t *client)
             esp_http_client_config_t config = {
                 .url = url,
                 .event_handler = http_client_polling_get_handler,
-                .user_data = &packet,
+                .user_data = &packets,
                 .disable_auto_redirect = true,
                 .method = HTTP_METHOD_GET,
             };
@@ -97,26 +97,33 @@ esp_err_t handshake_polling(sio_client_t *client)
         esp_http_client_set_header(client->handshake_client, "Content-Type", "text/html");
         esp_http_client_set_header(client->handshake_client, "Accept", "text/plain");
 
-        freeIfNotNull(url);
+        freeIfNotNull(&url);
     }
 
     esp_err_t err = esp_http_client_perform(client->handshake_client);
-    if (err != ESP_OK || packet == NULL)
+    if (err != ESP_OK || packets == NULL)
     {
-        ESP_LOGE(TAG, "HTTP GET request failed: %s, packet pointer %p ", esp_err_to_name(err), packet);
-        esp_http_client_cleanup(client->handshake_client);
-        client->handshake_client = NULL;
-
-        sio_event_data_t event_data = {
-            .client_id = client->client_id,
-            .packet = NULL};
-
-        esp_event_post(SIO_EVENT, SIO_EVENT_CONNECT_ERROR, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
-
-        return err;
+        ESP_LOGE(TAG, "HTTP GET request failed: %s, packets pointer %p ", esp_err_to_name(err), packets);
+        goto cleanup;
     }
 
     // parse the packet to get out session id and reconnect stuff etc
+
+    if (get_array_size(packets) != 1)
+    {
+        ESP_LOGE(TAG, "Expected 1 packet, got %d", get_array_size(packets));
+        err = ESP_FAIL;
+        goto cleanup;
+    }
+
+    Packet_t *packet = packets[0];
+
+    if (packet->eio_type != EIO_PACKET_OPEN)
+    {
+        ESP_LOGE(TAG, "Expected open packet, got %d", packet->eio_type);
+        err = ESP_FAIL;
+        goto cleanup;
+    }
 
     cJSON *json = cJSON_Parse(packet->json_start);
 
@@ -129,15 +136,9 @@ esp_err_t handshake_polling(sio_client_t *client)
             fprintf(stderr, "Error before: %s\n", error_ptr);
         }
 
-        unlockClient(client);
-        sio_event_data_t event_data = {
-            .client_id = client->client_id,
-            .packet = packet};
-
-        esp_event_post(SIO_EVENT, SIO_EVENT_CONNECT_ERROR, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
-
-        return ESP_FAIL;
-    }
+        err = ESP_FAIL;
+        goto cleanup;
+    };
 
     client->server_session_id = strdup(cJSON_GetObjectItemCaseSensitive(json, "sid")->valuestring);
     client->server_ping_interval_ms = cJSON_GetObjectItem(json, "pingInterval")->valueint;
@@ -148,37 +149,40 @@ esp_err_t handshake_polling(sio_client_t *client)
 
     // Post an OK, or rather the auth message
 
-    const char *auth_data = client->alloc_auth_body_cb == NULL ? "" : client->alloc_auth_body_cb(client);
+    const char *auth_data = client->alloc_auth_body_cb == NULL ? strdup("") : client->alloc_auth_body_cb(client);
 
-    unlockClient(client);
+    Packet_t *init_packet = alloc_message(auth_data, NULL);
+    freeIfNotNull(&auth_data);
 
-    Packet_t *ack_pack = alloc_packet(client->client_id, auth_data, strlen(auth_data));
-    setSioType(ack_pack, SIO_PACKET_CONNECT);
-    esp_err_t ret = sio_send_packet_polling(client, ack_pack);
-    free_packet(ack_pack);
+    setSioType(init_packet, SIO_PACKET_CONNECT);
+    err = sio_send_packet_polling(client, init_packet);
+    ESP_LOGI(TAG, "free init packet");
+    free_packet(&init_packet);
 
-    if (ret == ESP_OK)
+cleanup:
+    if (err == ESP_OK)
     {
-
-        // reuse not possible since user_data can't be set after init.
-        // newer idf version can do that but not the 5.0.2 (current stable)
-        esp_http_client_cleanup(client->handshake_client);
-        client->handshake_client = NULL;
 
         client->polling_client_running = true;
         xTaskCreate(&sio_polling_task, "sio_polling", 4096, (void *)&client->client_id, 6, NULL);
 
         sio_event_data_t event_data = {
             .client_id = client->client_id,
-            .packet = packet};
-
+            .packets_pointer = packets,
+            .len = get_array_size(packets)};
         esp_event_post(SIO_EVENT, SIO_EVENT_CONNECTED, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
-
-        // Tranfer the handler over to the polling service
-        // start the polling service and throw events
+    }
+    else
+    {
+        ESP_LOGW(TAG, "Handshake failed, sending error event");
+        sio_event_data_t event_data = {
+            .client_id = client->client_id,
+            .packets_pointer = packets,
+            .len = get_array_size(packets)};
+        esp_event_post(SIO_EVENT, SIO_EVENT_CONNECT_ERROR, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
     }
 
-    return ret;
+    return err;
 }
 
 esp_err_t handshake_websocket(sio_client_t *client)
@@ -188,11 +192,14 @@ esp_err_t handshake_websocket(sio_client_t *client)
 
 // sending
 
-esp_err_t sio_send_string(const sio_client_id_t clientId, const char *data, size_t len)
+esp_err_t sio_send_string(const sio_client_id_t clientId, const char *data)
 {
-    Packet_t *p = alloc_packet(clientId, data, len);
+    ESP_LOGI(TAG, "Sending string: %s %d", data, strlen(data));
+
+    Packet_t *p = alloc_message(data, "message");
+    print_packet(p);
     esp_err_t ret = sio_send_packet(clientId, p);
-    free_packet(p);
+    free_packet(&p);
     return ret;
 }
 
@@ -232,9 +239,9 @@ esp_err_t sio_send_packet(const sio_client_id_t clientId, const Packet_t *packet
 
 esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
 {
+    static PacketPointerArray_t packets;
+    packets = NULL;
 
-    static Packet_t *response_packet = NULL;
-    response_packet = NULL;
     { // scope for first url without session id
 
         char *url = alloc_post_url(client);
@@ -247,7 +254,7 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
             esp_http_client_config_t config = {
                 .url = url,
                 .event_handler = http_client_polling_post_handler,
-                .user_data = &response_packet,
+                .user_data = &packets,
                 .disable_auto_redirect = true,
                 .method = HTTP_METHOD_POST,
             };
@@ -258,6 +265,8 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
                 ESP_LOGE(TAG, "Failed to initialize HTTP client");
                 return ESP_FAIL;
             }
+
+            ESP_LOGI(TAG, "Initialized HTTP client for poll posting");
         }
         esp_http_client_set_header(client->posting_client, "Content-Type", "text/plain;charset=UTF-8");
         esp_http_client_set_header(client->posting_client, "Accept", "*/*");
@@ -266,43 +275,46 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
 
         esp_http_client_set_url(client->posting_client, url);
 
-        freeIfNotNull(url);
+        freeIfNotNull(&url);
     }
 
     esp_err_t err = esp_http_client_perform(client->posting_client);
-    if (err != ESP_OK)
+    if (err != ESP_OK || packets == NULL)
     {
-        ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
-        print_packet(packet);
-#if REBUILD_CLIENT_POST
-        esp_http_client_cleanup(client->posting_client);
-        client->posting_client = NULL;
-#endif
-        return err;
+        ESP_LOGE(TAG, "HTTP POST request failed: %s response: %p ", esp_err_to_name(err), packets);
+        goto cleanup;
+    }
+
+    if (get_array_size(packets) != 1)
+    {
+        ESP_LOGE(TAG, "Expected one 'ok' from server, got something else");
+        goto cleanup;
     }
 
     // allocate posting user if not present
-    if (response_packet != NULL && response_packet->eio_type == EIO_PACKET_OK_SERVER)
+    if (packets[0]->eio_type == EIO_PACKET_OK_SERVER)
     {
-        ESP_LOGD(TAG, "Response packet: %s, ok from server, sent succesful", response_packet->data);
-
-        free_packet(response_packet);
-#if REBUILD_CLIENT_POST
-        esp_http_client_cleanup(client->posting_client);
-        client->posting_client = NULL;
-#endif
-        return ESP_OK;
+        ESP_LOGI(TAG, "Ok from server response array %p", packets);
+        print_packet_arr(packets);
     }
     else
     {
-        ESP_LOGE(TAG, "Response packet: >%s<, not ok from server, sent failed", response_packet->data);
+        ESP_LOGE(TAG, "Not ok from server after send");
     }
 
+cleanup:
+
+    free_packet_arr(&packets);
+
 #if REBUILD_CLIENT_POST
-    esp_http_client_cleanup(client->posting_client);
-    client->posting_client = NULL;
+    if (client->posting_client != NULL)
+    {
+        esp_http_client_cleanup(client->posting_client);
+        client->posting_client = NULL;
+    }
+
 #endif
-    return ESP_FAIL;
+    return err;
 }
 
 esp_err_t sio_send_packet_websocket(sio_client_t *client, const Packet_t *packet)
@@ -336,7 +348,7 @@ esp_err_t sio_client_close(sio_client_id_t clientId)
     // wait until the task has deleted itself
     while (client->polling_client != NULL)
     {
-        vTaskDelay(10 / portTICK_PERIOD_MS);
+        vTaskDelay(1 / portTICK_PERIOD_MS); // do a yield
     }
 
     sio_send_packet(clientId, p);
@@ -382,7 +394,7 @@ char *alloc_handshake_get_url(const sio_client_t *client)
         SIO_TRANSPORT_POLLING_STRING,
         token);
 
-    freeIfNotNull(token);
+    freeIfNotNull(&token);
     return url;
 }
 
@@ -424,7 +436,7 @@ char *alloc_post_url(const sio_client_t *client)
         token,
         client->server_session_id);
 
-    freeIfNotNull(token);
+    freeIfNotNull(&token);
     return url;
 }
 

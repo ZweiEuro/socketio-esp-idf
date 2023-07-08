@@ -31,8 +31,6 @@ extern "C"
 #define SIO_TOKEN_SIZE 7
 
 #define MAX_HTTP_RECV_BUFFER 512
-#define ASCII_RS ''
-#define ASCII_RS_INDEX = 30
 
     typedef struct sio_client_t sio_client_t;
 
@@ -96,7 +94,7 @@ extern "C"
     esp_err_t sio_client_close(const sio_client_id_t clientId);
 
     esp_err_t sio_send_packet(const sio_client_id_t clientId, const Packet_t *packet);
-    esp_err_t sio_send_string(const sio_client_id_t clientId, const char *data, size_t len);
+    esp_err_t sio_send_string(const sio_client_id_t clientId, const char *data);
 
     // locks the semaphore, get it first before doing
     // any writing else it will most certainly produce race conditions
@@ -112,7 +110,8 @@ extern "C"
     typedef struct
     {
         sio_client_id_t client_id;
-        Packet_t *packet;
+        PacketPointerArray_t packets_pointer;
+        int len;
     } sio_event_data_t;
 
 #ifdef __cplusplus

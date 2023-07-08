@@ -5,12 +5,12 @@
 static const char *TAG = "[sio:util]";
 static const char token_charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-void freeIfNotNull(void *ptr)
+void freeIfNotNull(void **ptr)
 {
-    if (ptr != NULL)
+    if ((*ptr) != NULL)
     {
-        free(ptr);
-        ptr = NULL;
+        free((*ptr));
+        (*ptr) = NULL;
     }
 }
 

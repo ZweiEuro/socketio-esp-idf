@@ -100,12 +100,12 @@ void sio_client_destroy(sio_client_id_t clientId)
         return;
     }
 
-    freeIfNotNull(client->server_address);
-    freeIfNotNull(client->sio_url_path);
-    freeIfNotNull(client->nspc);
+    freeIfNotNull(&client->server_address);
+    freeIfNotNull(&client->sio_url_path);
+    freeIfNotNull(&client->nspc);
 
     // could be allocated
-    freeIfNotNull(client->server_session_id);
+    freeIfNotNull(&client->server_session_id);
 
     // Remove the semaphore, cleanup all handlers
     vSemaphoreDelete(client->client_lock);
@@ -122,7 +122,7 @@ void sio_client_destroy(sio_client_id_t clientId)
         ESP_ERROR_CHECK(esp_http_client_cleanup(client->handshake_client));
     }
 
-    freeIfNotNull(client);
+    freeIfNotNull(&client);
     sio_client_map[clientId] = NULL;
     // if all of them are freed then free the map
 
@@ -138,7 +138,7 @@ void sio_client_destroy(sio_client_id_t clientId)
 
     if (allFreed)
     {
-        freeIfNotNull(sio_client_map);
+        freeIfNotNull(&sio_client_map);
         sio_client_map = NULL;
     }
 }

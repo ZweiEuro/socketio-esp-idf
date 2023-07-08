@@ -27,14 +27,20 @@ extern "C"
         size_t len;
     } Packet_t;
 
-    void parse_packet(Packet_t *packet);
+    typedef Packet_t **PacketPointerArray_t;
+
+    void parse_packet(Packet_t *packet_p);
 
     // locks internally
-    Packet_t *alloc_packet(const sio_client_id_t clientId, const char *data, size_t len);
+    Packet_t *alloc_message(const char *json_str, const char *event_str);
 
-    void free_packet(Packet_t *packet);
+    int get_array_size(PacketPointerArray_t arr);
 
-    void print_packet(const Packet_t *packet);
+    void free_packet(Packet_t **packet_p_p);
+    void free_packet_arr(PacketPointerArray_t *arr_p_p);
+
+    void print_packet(const Packet_t *packet_p);
+    void print_packet_arr(PacketPointerArray_t arr);
     // util
 
     void setEioType(Packet_t *packet, eio_packet_t type);

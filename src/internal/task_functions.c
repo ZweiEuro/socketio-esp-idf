@@ -13,10 +13,12 @@ static const char *TAG = "[SIO_TASK:polling]";
 void sio_polling_task(void *pvParameters)
 {
     sio_client_id_t *clientId = (sio_client_id_t *)pvParameters;
-    Packet_t *response_packet = NULL;
 
+    static PacketPointerArray_t response_packets;
+    ESP_LOGI(TAG, "Started polling task");
     while (true)
     {
+        response_packets = NULL;
         sio_client_t *client = sio_client_get_and_lock(*clientId);
 
         if (!client->polling_client_running)
@@ -34,7 +36,7 @@ void sio_polling_task(void *pvParameters)
                 esp_http_client_config_t config = {
                     .url = url,
                     .event_handler = http_client_polling_get_handler,
-                    .user_data = &response_packet,
+                    .user_data = &response_packets,
                     .disable_auto_redirect = true,
                     .timeout_ms = client->server_ping_timeout_ms * 2 * 1000,
 
@@ -46,7 +48,7 @@ void sio_polling_task(void *pvParameters)
                 esp_http_client_set_url(client->polling_client, url);
             }
             ESP_LOGD(TAG, "Polling URL: %s", url);
-            freeIfNotNull(url);
+            freeIfNotNull(&url);
         }
         unlockClient(client);
         esp_err_t err = esp_http_client_perform(client->polling_client);
@@ -73,9 +75,11 @@ void sio_polling_task(void *pvParameters)
             goto end;
         }
 
-        print_packet(response_packet);
-        // ESP_LOG_BUFFER_HEX(TAG, response_packet->data, response_packet->len);
+        print_packet_arr(response_packets);
+        free_packet_arr(&response_packets);
 
+        continue;
+#if 0
         switch (response_packet->eio_type)
         {
         case EIO_PACKET_NOOP:
@@ -88,7 +92,7 @@ void sio_polling_task(void *pvParameters)
         case EIO_PACKET_PING:
             // send pong back
 
-            ESP_LOGD(TAG, "Received ping packet, sending pong back");
+            ESP_LOGI(TAG, "Received ping packet, sending pong back");
 
             Packet_t *p = (Packet_t *)calloc(1, sizeof(Packet_t));
             p->data = calloc(1, 2);
@@ -99,7 +103,7 @@ void sio_polling_task(void *pvParameters)
             {
                 ESP_LOGE(TAG, "Failed to send PONG packet");
             }
-            free_packet(p);
+            free_packet(&p);
             break;
 
         case EIO_PACKET_CLOSE:
@@ -112,6 +116,7 @@ void sio_polling_task(void *pvParameters)
                 .client_id = *clientId,
                 .packet = response_packet};
 
+            print_packet(response_packet);
             esp_event_post(SIO_EVENT, SIO_EVENT_RECEIVED_MESSAGE, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
 
             // purposefully lose the package
@@ -124,15 +129,17 @@ void sio_polling_task(void *pvParameters)
         if (response_packet != NULL)
         {
 
-            free_packet(response_packet);
+            free_packet(&response_packet);
             response_packet = NULL;
         }
+#endif
     }
 end:
 
     sio_event_data_t event_data = {
         .client_id = *clientId,
-        .packet = NULL};
+        .packets_pointer = NULL,
+        .len = 0};
 
     esp_event_post(SIO_EVENT, SIO_EVENT_DISCONNECTED, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
 

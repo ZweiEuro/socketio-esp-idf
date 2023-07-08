@@ -6,6 +6,7 @@
 #include <sio_client.h>
 
 const char *TAG = "[sio_packet]";
+const char *empty_str = "";
 
 void parse_packet(Packet_t *packet)
 {
@@ -61,75 +62,92 @@ void parse_packet(Packet_t *packet)
         break;
 
     default:
-
-        if (packet->data[1] == ASCII_RS)
-        {
-            packet->sio_type = SIO_PACKET_RS;
-        }
-        else
-        {
-            packet->sio_type = (sio_packet_t)(packet->data[1] - '0');
-        }
+        ESP_LOGW(TAG, "Unknown packet type %d %s", packet->eio_type, packet->data);
         break;
     }
 }
 
-void free_packet(Packet_t *packet)
+void free_packet(Packet_t **packet_p_p)
 {
+    Packet_t *packet_p = *packet_p_p;
 
-    freeIfNotNull(packet->data);
-    freeIfNotNull(packet);
+      if (packet_p->data != NULL)
+    {
+        free(packet_p->data);
+        packet_p->data = NULL;
+    }
+
+    free(packet_p);
+    *packet_p_p = NULL;
 }
 
-Packet_t *alloc_packet(const sio_client_id_t clientId, const char *data, size_t len)
+int get_array_size(PacketPointerArray_t arr_p)
 {
-
-    sio_client_t *client = sio_client_get_and_lock(clientId);
-    if (client == NULL)
+    if (arr_p == NULL)
     {
-        ESP_LOGE(TAG, "Failed to get client");
-        unlockClient(client);
-        return NULL;
+        return 0;
+    }
+
+    int i = 0;
+    while (arr_p[i] != NULL)
+    {
+        i++;
+    }
+    return i;
+}
+
+void free_packet_arr(PacketPointerArray_t *arr_p)
+{
+    PacketPointerArray_t arr = *arr_p;
+
+    print_packet_arr(arr);
+
+    int i = 0;
+    while (arr[i] != NULL)
+    {
+        Packet_t *p = arr[i];
+        free_packet(&p);
+        i++;
+    }
+    free(arr);
+    *arr_p = NULL;
+}
+
+Packet_t *alloc_message(const char *json_str, const char *event_str)
+{
+    if (json_str == NULL)
+    {
+        json_str = empty_str;
     }
 
     Packet_t *packet = calloc(1, sizeof(Packet_t));
     if (packet == NULL)
     {
         ESP_LOGE(TAG, "Failed to allocate memory for packet");
-        unlockClient(client);
-
-        return NULL;
-    }
-    // we stick '44' at the start every time
-    packet->len = 2; // 2 for the '44'
-    if (strcmp(client->nspc, "/") != 0)
-    {
-        packet->len += strlen(client->nspc) + 2; // 2 for '/' and ',' at start and end
-    }
-    packet->len += len;
-    packet->data = calloc(1, len + 1 + 2);
-
-    if (packet->data == NULL)
-    {
-        ESP_LOGE(TAG, "Failed to allocate memory for packet data");
-        free_packet(packet);
-        unlockClient(client);
-
         return NULL;
     }
 
-    if (strcmp(client->nspc, "/") == 0)
+    packet->eio_type = EIO_PACKET_MESSAGE;
+    packet->sio_type = SIO_PACKET_EVENT;
+
+    if (event_str == NULL)
     {
-        sprintf(packet->data, "44%s", data);
+
+        packet->len = 2 + strlen(json_str);
+        packet->data = calloc(1, packet->len + 1);
+
+        sprintf(packet->data, "42%s", json_str);
     }
     else
     {
-        sprintf(packet->data, "44/%s,%s", client->nspc, data);
+        // Events attach something before the json and make it an array
+        // 42["event",json]
+
+        packet->len = 2 + strlen("[\"") + strlen(event_str) + strlen("\",") + strlen(json_str) + strlen("]");
+        packet->data = calloc(1, packet->len + 1);
+
+        sprintf(packet->data, "42[\"%s\",%s]", event_str, json_str);
     }
-
-    parse_packet(packet);
-    unlockClient(client);
-
     return packet;
 }
 
@@ -152,7 +170,26 @@ void setSioType(Packet_t *packet, sio_packet_t type)
 
 void print_packet(const Packet_t *packet)
 {
-    ESP_LOGI(TAG, "Packet: EIO:%d SIO:%d len:%d\n%s",
-             packet->eio_type, packet->sio_type, packet->len,
+    ESP_LOGI(TAG, "Packet: %p EIO:%d SIO:%d len:%d  -- %s",
+             packet, packet->eio_type, packet->sio_type, packet->len,
              packet->data);
+}
+
+void print_packet_arr(PacketPointerArray_t arr)
+{
+
+    if (arr == NULL)
+    {
+        ESP_LOGW(TAG, "Not printing null packet arr");
+        return;
+    }
+
+    ESP_LOGI(TAG, "Packet array: %p", arr);
+
+    int i = 0;
+    while (arr[i] != NULL)
+    {
+        print_packet(arr[i]);
+        i++;
+    }
 }
