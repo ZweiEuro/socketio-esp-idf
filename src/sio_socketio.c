@@ -194,7 +194,7 @@ esp_err_t handshake_websocket(sio_client_t *client)
 
 esp_err_t sio_send_string(const sio_client_id_t clientId, const char *data)
 {
-    ESP_LOGI(TAG, "Sending string: %s %d", data, strlen(data));
+    ESP_LOGD(TAG, "Sending string: %s %d", data, strlen(data));
 
     Packet_t *p = alloc_message(data, "message");
     print_packet(p);
@@ -300,9 +300,10 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
     }
 
 cleanup:
-
-    free_packet_arr(&packets);
-
+    if (packets != NULL)
+    {
+        free_packet_arr(&packets);
+    }
 #if REBUILD_CLIENT_POST
     if (client->posting_client != NULL)
     {
