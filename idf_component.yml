@@ -1,6 +1,6 @@
 version: '0.0.1'
-description: esp websocket based socketio client
-url: https://github.com/kgrozdanovski/socketio-esp-idf
+description: Socketio client for esp idf
+url: https://github.com/ZweiEuro/socketio-esp-idf.git
 dependencies:
   espressif/esp_websocket_client: '>=1.0.0'
   idf:
