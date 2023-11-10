@@ -343,13 +343,16 @@ esp_err_t sio_client_close(sio_client_id_t clientId)
 
     client->polling_client_running = false;
     unlockClient(client);
+
+    sio_send_packet(clientId, p);
+
     // wait until the task has deleted itself
     while (client->polling_client != NULL)
     {
-        vTaskDelay(1 / portTICK_PERIOD_MS); // do a yield
+        ESP_LOGI(TAG, "waiting for polling client to close");
+        vTaskDelay(100 / portTICK_PERIOD_MS); // do a yield
     }
 
-    sio_send_packet(clientId, p);
     return ESP_OK;
 }
 
