@@ -8,6 +8,8 @@
 
 static const char *TAG = "[sio:http_handlers]";
 
+// #define ESP_LOGD(TAG, ...) ESP_LOGI(TAG, __VA_ARGS__)
+
 esp_err_t http_client_polling_get_handler(esp_http_client_event_t *evt)
 {
     // TODO: This makes a race condition if the handler is used twice at the same time.

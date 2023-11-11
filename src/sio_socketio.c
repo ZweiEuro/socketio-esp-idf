@@ -321,8 +321,17 @@ esp_err_t sio_send_packet_websocket(sio_client_t *client, const Packet_t *packet
     return ESP_OK;
 }
 
-// close
-
+/**
+ * @brief Close the socket.io connection
+ * @NOTE: BUG! something here is colliding with task_functions:end (label)
+ * the esp_http_client clear seems to clear something that later causes a load to fail IF the client is reused
+ * By all means this could indicate a bug with destroy as well. Use at own risk.
+ *
+ * @param clientId non negative id integer
+ *
+ *
+ *
+ */
 esp_err_t sio_client_close(sio_client_id_t clientId)
 {
 
