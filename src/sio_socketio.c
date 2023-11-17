@@ -197,7 +197,7 @@ esp_err_t sio_send_string(const sio_client_id_t clientId, const char *data)
     ESP_LOGD(TAG, "Sending string: %s %d", data, strlen(data));
 
     Packet_t *p = alloc_message(data, "message");
-    print_packet(p);
+    // print_packet(p);
     esp_err_t ret = sio_send_packet(clientId, p);
     free_packet(&p);
     return ret;
@@ -235,7 +235,7 @@ esp_err_t sio_send_packet(const sio_client_id_t clientId, const Packet_t *packet
 
 // TODO: figure out why this is necessary,
 // https://github.com/ZweiEuro/socketio-esp-idf/issues/1
-#define REBUILD_CLIENT_POST 1
+#define REBUILD_CLIENT_POST 0
 
 esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
 {
@@ -297,6 +297,7 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
     else
     {
         ESP_LOGE(TAG, "Not ok from server after send");
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, packets[0]->data, packets[0]->len, ESP_LOG_ERROR);
     }
 
 cleanup:
@@ -304,14 +305,16 @@ cleanup:
     {
         free_packet_arr(&packets);
     }
-#if REBUILD_CLIENT_POST
     if (client->posting_client != NULL)
     {
+#if REBUILD_CLIENT_POST
         esp_http_client_cleanup(client->posting_client);
         client->posting_client = NULL;
+#else
+        esp_http_client_close(client->posting_client);
+#endif
     }
 
-#endif
     return err;
 }
 

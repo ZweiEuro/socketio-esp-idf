@@ -164,6 +164,7 @@ void parse_packet(Packet_t *packet)
 
     default:
         ESP_LOGW(TAG, "Unknown packet type %d %s", packet->eio_type, packet->data);
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, packet->data, packet->len, ESP_LOG_WARN);
         break;
     }
 }
