@@ -79,10 +79,10 @@ esp_err_t handshake_polling(sio_client_t *client)
 
             esp_http_client_config_t config = {
                 .url = url,
+                .method = HTTP_METHOD_GET,
+                .disable_auto_redirect = true,
                 .event_handler = http_client_polling_get_handler,
                 .user_data = &packets,
-                .disable_auto_redirect = true,
-                .method = HTTP_METHOD_GET,
             };
             client->handshake_client = esp_http_client_init(&config);
 
@@ -188,6 +188,7 @@ cleanup:
 esp_err_t handshake_websocket(sio_client_t *client)
 {
     assert(false && "Not implemented");
+    return ESP_FAIL;
 }
 
 // sending
