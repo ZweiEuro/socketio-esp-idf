@@ -66,98 +66,99 @@ esp_err_t handshake_polling(sio_client_t *client)
 
     static PacketPointerArray_t packets;
     packets = NULL;
-    { // scope for first url without session id
+    // scope for first url without session id
+
+    if (client->handshake_client == NULL)
+    {
 
         char *url = alloc_handshake_get_url(client);
 
+        // Form the request URL
+
+        ESP_LOGD(TAG, "Handshake URL: >%s< len:%d", url, strlen(url));
+
+        esp_http_client_config_t config = {
+            .url = url,
+            .method = HTTP_METHOD_GET,
+            .disable_auto_redirect = true,
+            .event_handler = http_client_polling_get_handler,
+            .user_data = &packets,
+        };
+        client->handshake_client = esp_http_client_init(&config);
+
         if (client->handshake_client == NULL)
         {
-
-            // Form the request URL
-
-            ESP_LOGD(TAG, "Handshake URL: >%s< len:%d", url, strlen(url));
-
-            esp_http_client_config_t config = {
-                .url = url,
-                .method = HTTP_METHOD_GET,
-                .disable_auto_redirect = true,
-                .event_handler = http_client_polling_get_handler,
-                .user_data = &packets,
-            };
-            client->handshake_client = esp_http_client_init(&config);
-
-            if (client->handshake_client == NULL)
-            {
-                ESP_LOGE(TAG, "Failed to initialize HTTP client");
-                return ESP_FAIL;
-            }
+            ESP_LOGE(TAG, "Failed to initialize HTTP client");
+            return ESP_FAIL;
         }
         esp_http_client_set_url(client->handshake_client, url);
         esp_http_client_set_method(client->handshake_client, HTTP_METHOD_GET);
         esp_http_client_set_header(client->handshake_client, "Content-Type", "text/html");
         esp_http_client_set_header(client->handshake_client, "Accept", "text/plain");
-
-        freeIfNotNull(&url);
+        free(url);
     }
 
     esp_err_t err = esp_http_client_perform(client->handshake_client);
-    if (err != ESP_OK || packets == NULL)
-    {
-        ESP_LOGE(TAG, "HTTP GET request failed: %s, packets pointer %p ", esp_err_to_name(err), packets);
-        goto cleanup;
-    }
-
-    // parse the packet to get out session id and reconnect stuff etc
-
-    if (get_array_size(packets) != 1)
-    {
-        ESP_LOGE(TAG, "Expected 1 packet, got %d", get_array_size(packets));
-        err = ESP_FAIL;
-        goto cleanup;
-    }
-
-    Packet_t *packet = packets[0];
-
-    if (packet->eio_type != EIO_PACKET_OPEN)
-    {
-        ESP_LOGE(TAG, "Expected open packet, got %d", packet->eio_type);
-        err = ESP_FAIL;
-        goto cleanup;
-    }
-
-    cJSON *json = cJSON_Parse(packet->json_start);
-
-    if (json == NULL)
-    {
-        ESP_LOGE(TAG, "Failed to parse JSON: %s", cJSON_GetErrorPtr());
-        const char *error_ptr = cJSON_GetErrorPtr();
-        if (error_ptr != NULL)
+    { // scope for var declaration error after cleanup
+        if (err != ESP_OK || packets == NULL)
         {
-            fprintf(stderr, "Error before: %s\n", error_ptr);
+            ESP_LOGE(TAG, "HTTP GET request failed: %s, packets pointer %p ", esp_err_to_name(err), packets);
+            goto cleanup;
         }
 
-        err = ESP_FAIL;
-        goto cleanup;
-    };
+        // parse the packet to get out session id and reconnect stuff etc
 
-    client->server_session_id = strdup(cJSON_GetObjectItemCaseSensitive(json, "sid")->valuestring);
-    client->server_ping_interval_ms = cJSON_GetObjectItem(json, "pingInterval")->valueint;
-    client->server_ping_timeout_ms = cJSON_GetObjectItem(json, "pingTimeout")->valueint;
+        if (get_array_size(packets) != 1)
+        {
+            ESP_LOGE(TAG, "Expected 1 packet, got %d", get_array_size(packets));
+            err = ESP_FAIL;
+            goto cleanup;
+        }
 
-    cJSON_Delete(json);
-    // send back the ok with the new url
+        Packet_t *packet = packets[0];
 
-    // Post an OK, or rather the auth message
+        if (packet->eio_type != EIO_PACKET_OPEN)
+        {
+            ESP_LOGE(TAG, "Expected open packet, got %d", packet->eio_type);
+            err = ESP_FAIL;
+            goto cleanup;
+        }
 
-    const char *auth_data = client->alloc_auth_body_cb == NULL ? strdup("") : client->alloc_auth_body_cb(client);
+        cJSON *json = cJSON_Parse(packet->json_start);
 
-    Packet_t *init_packet = alloc_message(auth_data, NULL);
-    freeIfNotNull(&auth_data);
+        if (json == NULL)
+        {
+            ESP_LOGE(TAG, "Failed to parse JSON: %s", cJSON_GetErrorPtr());
+            const char *error_ptr = cJSON_GetErrorPtr();
+            if (error_ptr != NULL)
+            {
+                fprintf(stderr, "Error before: %s\n", error_ptr);
+            }
 
-    setSioType(init_packet, SIO_PACKET_CONNECT);
-    err = sio_send_packet_polling(client, init_packet);
-    ESP_LOGI(TAG, "free init packet");
-    free_packet(&init_packet);
+            err = ESP_FAIL;
+            goto cleanup;
+        };
+
+        client->server_session_id = strdup(cJSON_GetObjectItemCaseSensitive(json, "sid")->valuestring);
+        client->server_ping_interval_ms = cJSON_GetObjectItem(json, "pingInterval")->valueint;
+        client->server_ping_timeout_ms = cJSON_GetObjectItem(json, "pingTimeout")->valueint;
+
+        cJSON_Delete(json);
+        // send back the ok with the new url
+
+        // Post an OK, or rather the auth message
+
+        const char *auth_data = client->alloc_auth_body_cb == NULL ? strdup("") : client->alloc_auth_body_cb(client);
+
+        Packet_t *init_packet = alloc_message(auth_data, NULL);
+        free((void *)auth_data);
+        auth_data = NULL;
+
+        setSioType(init_packet, SIO_PACKET_CONNECT);
+        err = sio_send_packet_polling(client, init_packet);
+        ESP_LOGI(TAG, "free init packet");
+        free_packet(&init_packet);
+    }
 
 cleanup:
     if (err == ESP_OK)

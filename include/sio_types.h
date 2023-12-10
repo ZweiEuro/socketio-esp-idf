@@ -5,7 +5,14 @@ extern "C"
 {
 #endif
 
+
 #include <esp_types.h>
+
+
+#ifndef CONFIG_LOG_DEFAULT_LEVEL
+#define CONFIG_LOG_DEFAULT_LEVEL 3
+#endif
+
 
     typedef int8_t sio_client_id_t;
 

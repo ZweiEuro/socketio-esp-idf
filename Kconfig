@@ -1,5 +1,6 @@
 menu "socketio-esp-idf"
 
+
     config SIO_DEFAULT_EIO_VERSION
         int "Engine IO Version"
         range 1 5

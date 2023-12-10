@@ -122,7 +122,8 @@ void sio_client_destroy(sio_client_id_t clientId)
         ESP_ERROR_CHECK(esp_http_client_cleanup(client->handshake_client));
     }
 
-    freeIfNotNull(&client);
+    free(client);
+    client = NULL;
     sio_client_map[clientId] = NULL;
     // if all of them are freed then free the map
 
@@ -138,7 +139,7 @@ void sio_client_destroy(sio_client_id_t clientId)
 
     if (allFreed)
     {
-        freeIfNotNull(&sio_client_map);
+        free(sio_client_map);
         sio_client_map = NULL;
     }
 }
