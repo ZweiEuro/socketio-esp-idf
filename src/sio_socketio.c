@@ -83,7 +83,7 @@ esp_err_t handshake_polling(sio_client_t *client)
             .disable_auto_redirect = true,
             .event_handler = http_client_polling_get_handler,
             .user_data = &packets,
-        };
+            .timeout_ms = 5000};
         client->handshake_client = esp_http_client_init(&config);
 
         if (client->handshake_client == NULL)
@@ -97,9 +97,21 @@ esp_err_t handshake_polling(sio_client_t *client)
         esp_http_client_set_header(client->handshake_client, "Accept", "text/plain");
         free(url);
     }
-
+    else
+    {
+        esp_http_client_close(client->handshake_client);
+    }
+    ESP_LOGI(TAG, "Sending handshake");
+retry_handshake:
     esp_err_t err = esp_http_client_perform(client->handshake_client);
     { // scope for var declaration error after cleanup
+
+        if (err == ESP_ERR_HTTP_EAGAIN || err == ESP_ERR_HTTP_CONNECT)
+        {
+            ESP_LOGW(TAG, "Handshake timed out, retrying");
+            goto retry_handshake;
+        }
+
         if (err != ESP_OK || packets == NULL)
         {
             ESP_LOGE(TAG, "HTTP GET request failed: %s, packets pointer %p ", esp_err_to_name(err), packets);
@@ -137,7 +149,13 @@ esp_err_t handshake_polling(sio_client_t *client)
 
             err = ESP_FAIL;
             goto cleanup;
-        };
+        }
+        else
+        {
+            char *json_printed = cJSON_Print(json);
+            ESP_LOGI(TAG, "Handshake json %s", json_printed);
+            free(json_printed);
+        }
 
         client->server_session_id = strdup(cJSON_GetObjectItemCaseSensitive(json, "sid")->valuestring);
         client->server_ping_interval_ms = cJSON_GetObjectItem(json, "pingInterval")->valueint;
@@ -176,6 +194,7 @@ cleanup:
     else
     {
         ESP_LOGW(TAG, "Handshake failed, sending error event");
+
         sio_event_data_t event_data = {
             .client_id = client->client_id,
             .packets_pointer = packets,

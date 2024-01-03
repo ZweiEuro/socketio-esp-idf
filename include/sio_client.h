@@ -35,6 +35,7 @@ extern "C"
     typedef struct sio_client_t sio_client_t;
 
     typedef const char *(*sio_auth_body_fptr_t)(const struct sio_client_t *client);
+
     typedef struct
     {
         uint8_t eio_version;        /* if 0 uses CONFIG_EIO_VERSION */

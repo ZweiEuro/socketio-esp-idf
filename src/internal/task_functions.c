@@ -37,16 +37,25 @@ void sio_polling_task(void *pvParameters)
                     .url = url,
                     .event_handler = http_client_polling_get_handler,
                     .user_data = &response_packets,
-                    .disable_auto_redirect = true,
-                    .timeout_ms = client->server_ping_timeout_ms * 2 * 1000,
-
-                };
+                    .disable_auto_redirect = true};
                 client->polling_client = esp_http_client_init(&config);
             }
             else
             {
                 esp_http_client_set_url(client->polling_client, url);
             }
+
+            // before init the timeout might be 0 which we have to correct for first call
+            // after init setting this multiple times doesn't hurt
+            if (client->server_ping_interval_ms == 0)
+            {
+                esp_http_client_set_timeout_ms(client->polling_client, 5000);
+            }
+            else
+            {
+                esp_http_client_set_timeout_ms(client->polling_client, client->server_ping_interval_ms + client->server_ping_timeout_ms * 2);
+            }
+
             ESP_LOGD(TAG, "Polling URL: %s", url);
             freeIfNotNull(&url);
         }
@@ -55,6 +64,11 @@ void sio_polling_task(void *pvParameters)
 
         if (err != ESP_OK)
         {
+            if (err == ESP_ERR_HTTP_EAGAIN)
+            {
+                ESP_LOGI(TAG, "HTTP request timed out. Ping timeout");
+            }
+
             // todo: emit DISCONNECTED event on any fail
             int r = esp_http_client_get_errno(client->polling_client);
             ESP_LOGE(TAG, "HTTP POLLING GET request failed: %s %i", esp_err_to_name(err), r);
