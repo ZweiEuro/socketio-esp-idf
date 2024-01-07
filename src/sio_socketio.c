@@ -17,13 +17,25 @@ esp_err_t handshake_websocket(sio_client_t *client);
 esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet);
 esp_err_t sio_send_packet_websocket(sio_client_t *client, const Packet_t *packet);
 
-char *alloc_post_url(const sio_client_t *client);
-char *alloc_handshake_get_url(const sio_client_t *client);
-
 esp_err_t sio_client_begin(const sio_client_id_t clientId)
 {
 
     sio_client_t *client = sio_client_get_and_lock(clientId);
+
+    if (client == NULL)
+    {
+        ESP_LOGE(TAG, "Client %d does not exist", clientId);
+        return ESP_FAIL;
+    }
+
+    if (client->status != SIO_CLIENT_INITED &&
+        client->status != SIO_CLIENT_STATUS_CLOSED)
+    {
+        ESP_LOGE(TAG, "Client %d is not in INITED or CLOSED state, but in %d", clientId, client->status);
+        unlockClient(client);
+        return ESP_FAIL;
+    }
+
     esp_err_t handshake_result = handshake(client);
 
     if (handshake_result == ESP_OK)
@@ -58,15 +70,14 @@ esp_err_t handshake(sio_client_t *client)
 
 esp_err_t handshake_polling(sio_client_t *client)
 {
-    if (client->polling_client_running)
-    {
-        ESP_LOGE(TAG, "Polling client already running, close it properly first");
-        return ESP_FAIL;
-    }
+
+    const sio_client_id_t client_id = client->client_id;
 
     static PacketPointerArray_t packets;
     packets = NULL;
     // scope for first url without session id
+
+    client->status = SIO_CLIENT_STATUS_HANDSHAKING;
 
     if (client->handshake_client == NULL)
     {
@@ -101,14 +112,31 @@ esp_err_t handshake_polling(sio_client_t *client)
     {
         esp_http_client_close(client->handshake_client);
     }
-    ESP_LOGI(TAG, "Sending handshake");
-retry_handshake:
-    esp_err_t err = esp_http_client_perform(client->handshake_client);
+
+    esp_err_t err = ESP_FAIL;
+    {
+    retry_handshake:
+        sio_client_status_t client_status = client->status;
+        esp_http_client_handle_t client_handshake_http_client = client->handshake_client;
+        unlockClient(client);
+        client = NULL;
+        if (client_status != SIO_CLIENT_STATUS_HANDSHAKING)
+        {
+            ESP_LOGW(TAG, "Handshake cancelled, client status is %d", client_status);
+            return ESP_FAIL;
+        }
+
+        ESP_LOGI(TAG, "Sending handshake");
+        assert(client_handshake_http_client != NULL);
+        err = esp_http_client_perform(client_handshake_http_client);
+    }
     { // scope for var declaration error after cleanup
 
         if (err == ESP_ERR_HTTP_EAGAIN || err == ESP_ERR_HTTP_CONNECT)
         {
-            ESP_LOGW(TAG, "Handshake timed out, retrying");
+            ESP_LOGW(TAG, "Handshake timed out, retrying error: %s ", esp_err_to_name(err));
+            vTaskDelay(pdMS_TO_TICKS(10000)); // retry connection after 10s
+            client = sio_client_get_and_lock(client_id);
             goto retry_handshake;
         }
 
@@ -156,8 +184,9 @@ retry_handshake:
             ESP_LOGI(TAG, "Handshake json %s", json_printed);
             free(json_printed);
         }
+        client = sio_client_get_and_lock(client_id);
 
-        client->server_session_id = strdup(cJSON_GetObjectItemCaseSensitive(json, "sid")->valuestring);
+        client->_server_session_id = strdup(cJSON_GetObjectItemCaseSensitive(json, "sid")->valuestring);
         client->server_ping_interval_ms = cJSON_GetObjectItem(json, "pingInterval")->valueint;
         client->server_ping_timeout_ms = cJSON_GetObjectItem(json, "pingTimeout")->valueint;
 
@@ -182,11 +211,11 @@ cleanup:
     if (err == ESP_OK)
     {
 
-        client->polling_client_running = true;
-        xTaskCreate(&sio_polling_task, "sio_polling", 4096, (void *)&client->client_id, 6, NULL);
+        client->status = SIO_CLIENT_STATUS_POLLING;
+        xTaskCreate(&sio_polling_task, "sio_polling", 4096, (void *)&client_id, 6, NULL);
 
         sio_event_data_t event_data = {
-            .client_id = client->client_id,
+            .client_id = client_id,
             .packets_pointer = packets,
             .len = get_array_size(packets)};
         esp_event_post(SIO_EVENT, SIO_EVENT_CONNECTED, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
@@ -196,7 +225,7 @@ cleanup:
         ESP_LOGW(TAG, "Handshake failed, sending error event");
 
         sio_event_data_t event_data = {
-            .client_id = client->client_id,
+            .client_id = client_id,
             .packets_pointer = packets,
             .len = get_array_size(packets)};
         esp_event_post(SIO_EVENT, SIO_EVENT_CONNECT_ERROR, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
@@ -228,9 +257,10 @@ esp_err_t sio_send_packet(const sio_client_id_t clientId, const Packet_t *packet
 {
     sio_client_t *client = sio_client_get_and_lock(clientId);
 
-    if (client->server_session_id == NULL)
+    if (client->status != SIO_CLIENT_STATUS_POLLING &&
+        client->status != SIO_CLIENT_CLOSING)
     {
-        ESP_LOGE(TAG, "Server session id not set, was this client initialized?");
+        ESP_LOGE(TAG, "Client not in sendable state %d", client->status);
         unlockClient(client);
 
         return ESP_FAIL;
@@ -345,136 +375,10 @@ esp_err_t sio_send_packet_websocket(sio_client_t *client, const Packet_t *packet
     return ESP_OK;
 }
 
-/**
- * @brief Close the socket.io connection
- * @NOTE: BUG! something here is colliding with task_functions:end (label)
- * the esp_http_client clear seems to clear something that later causes a load to fail IF the client is reused
- * By all means this could indicate a bug with destroy as well. Use at own risk.
- *
- * @param clientId non negative id integer
- *
- *
- *
- */
-esp_err_t sio_client_close(sio_client_id_t clientId)
-{
-
-    Packet_t *p = (Packet_t *)calloc(1, sizeof(Packet_t));
-    p->data = calloc(1, 2);
-    p->len = 2;
-    setEioType(p, EIO_PACKET_CLOSE);
-
-    // close the listener and wait for it to close
-    sio_client_t *client = sio_client_get_and_lock(clientId);
-
-    if (client->server_session_id == NULL)
-    {
-        ESP_LOGE(TAG, "Server session id not set, socket not connected?");
-        unlockClient(client);
-        return ESP_FAIL;
-    }
-
-    client->polling_client_running = false;
-    unlockClient(client);
-
-    sio_send_packet(clientId, p);
-
-    // wait until the task has deleted itself
-    while (client->polling_client != NULL)
-    {
-        ESP_LOGI(TAG, "waiting for polling client to close");
-        vTaskDelay(100 / portTICK_PERIOD_MS); // do a yield
-    }
-
-    return ESP_OK;
-}
-
 bool sio_client_is_connected(sio_client_id_t clientId)
 {
     sio_client_t *client = sio_client_get_and_lock(clientId);
-    bool ret = client->server_session_id != NULL && client->polling_client_running;
+    bool ret = client->status == SIO_CLIENT_STATUS_POLLING;
     unlockClient(client);
     return ret;
-}
-// util
-
-char *alloc_handshake_get_url(const sio_client_t *client)
-{
-
-    char *token = alloc_random_string(SIO_TOKEN_SIZE);
-    size_t url_length =
-        strlen(client->transport == SIO_TRANSPORT_POLLING ? SIO_TRANSPORT_POLLING_PROTO_STRING : SIO_TRANSPORT_WEBSOCKETS_PROTO_STRING) +
-        strlen("://") +
-        strlen(client->server_address) +
-        strlen(client->sio_url_path) +
-        strlen("/?EIO=X&transport=") +
-        strlen(SIO_TRANSPORT_POLLING_STRING) +
-        strlen("&t=") + strlen(token);
-
-    char *url = calloc(1, url_length + 1);
-    if (url == NULL)
-    {
-        assert(false && "Failed to allocate memory for handshake url");
-        return NULL;
-    }
-
-    sprintf(
-        url,
-        "%s://%s%s/?EIO=%d&transport=%s&t=%s",
-        SIO_TRANSPORT_POLLING_PROTO_STRING,
-        client->server_address,
-        client->sio_url_path,
-        client->eio_version,
-        SIO_TRANSPORT_POLLING_STRING,
-        token);
-
-    freeIfNotNull(&token);
-    return url;
-}
-
-char *alloc_post_url(const sio_client_t *client)
-{
-    if (client == NULL || client->server_session_id == NULL)
-    {
-        ESP_LOGE(TAG, "Server session id not set, was this client initialized? Client: %p", client);
-        return NULL;
-    }
-
-    char *token = alloc_random_string(SIO_TOKEN_SIZE);
-    size_t url_length =
-        strlen(client->transport == SIO_TRANSPORT_POLLING ? SIO_TRANSPORT_POLLING_PROTO_STRING : SIO_TRANSPORT_WEBSOCKETS_PROTO_STRING) +
-        strlen("://") +
-        strlen(client->server_address) +
-        strlen(client->sio_url_path) +
-        strlen("/?EIO=X&transport=") +
-        strlen(SIO_TRANSPORT_POLLING_STRING) +
-        strlen("&t=") + strlen(token) +
-        strlen("&sid=") + strlen(client->server_session_id);
-
-    char *url = calloc(1, url_length + 1);
-
-    if (url == NULL)
-    {
-        assert(false && "Failed to allocate memory for handshake url");
-        return NULL;
-    }
-
-    sprintf(
-        url,
-        "%s://%s%s/?EIO=%d&transport=%s&t=%s&sid=%s",
-        SIO_TRANSPORT_POLLING_PROTO_STRING,
-        client->server_address,
-        client->sio_url_path,
-        client->eio_version,
-        SIO_TRANSPORT_POLLING_STRING,
-        token,
-        client->server_session_id);
-
-    freeIfNotNull(&token);
-    return url;
-}
-
-char *alloc_polling_get_url(const sio_client_t *client)
-{
-    return alloc_post_url(client);
 }

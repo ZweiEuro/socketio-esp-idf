@@ -36,95 +36,85 @@ char *alloc_random_string(const size_t length)
     return randomString;
 }
 
-#if false
+// util
 
-char *util_str_cat(char *destination, char *source)
+char *alloc_handshake_get_url(const sio_client_t *client)
 {
-    while (*destination)
-        destination++;
-    while ((*destination++ = *source++))
-        ;
 
-    return --destination;
-}
+    char *token = alloc_random_string(SIO_TOKEN_SIZE);
+    size_t url_length =
+        strlen(client->transport == SIO_TRANSPORT_POLLING ? SIO_TRANSPORT_POLLING_PROTO_STRING : SIO_TRANSPORT_WEBSOCKETS_PROTO_STRING) +
+        strlen("://") +
+        strlen(client->server_address) +
+        strlen(client->sio_url_path) +
+        strlen("/?EIO=X&transport=") +
+        strlen(SIO_TRANSPORT_POLLING_STRING) +
+        strlen("&t=") + strlen(token);
 
-esp_err_t util_substr(
-    char *substr,
-    char *source,
-    size_t *source_len,
-    int start,
-    int end)
-{
-    ESP_LOGW(SIO_UTIL_TAG, "source: %s", source);
-    ESP_LOGW(SIO_UTIL_TAG, "source_len: %d", *source_len);
-
-    int j = 0;
-    for (int i = 0; i < *source_len; i = i + 1)
+    char *url = (char *)calloc(1, url_length + 1);
+    if (url == NULL)
     {
-        if ((i >= start) & (i <= end))
-        {
-            substr[j] = source[i];
-            j = j + 1;
-        }
-    }
-
-    // null terminate destination string
-    // if (*source_len != end) {
-    //     *substr = '\0';
-    // }
-
-    return ESP_OK;
-}
-
-
-
-char *util_extract_json(char *pc_buffer)
-{
-    // Empty?
-    int32_t i_strlen = strlen(pc_buffer);
-    if (i_strlen <= 0)
-    {
-        ESP_LOGW(SIO_UTIL_TAG, "util_extract_json(): EMPTY STRING!");
+        assert(false && "Failed to allocate memory for handshake url");
         return NULL;
     }
 
-    // Trim left
-    bool b_found_trim_pos = false;
-    for (int32_t i = 0; i < i_strlen; i++)
-    {
-        if (pc_buffer[i] == '[' || pc_buffer[i] == '{')
-        {
-            b_found_trim_pos = true;
-            pc_buffer = &pc_buffer[i];
-            break;
-        }
-    }
-    if (!b_found_trim_pos)
-    {
-        ESP_LOGW(SIO_UTIL_TAG, "util_extract_json(): TRIM LEFT FAIL!");
-        return NULL;
-    }
-    i_strlen = strlen(pc_buffer);
+    sprintf(
+        url,
+        "%s://%s%s/?EIO=%d&transport=%s&t=%s",
+        SIO_TRANSPORT_POLLING_PROTO_STRING,
+        client->server_address,
+        client->sio_url_path,
+        client->eio_version,
+        SIO_TRANSPORT_POLLING_STRING,
+        token);
 
-    // Trim right
-    b_found_trim_pos = false;
-    for (int32_t i = i_strlen - 1; i >= 0; i--)
-    {
-        if (pc_buffer[i] == ']' || pc_buffer[i] == '}')
-        {
-            b_found_trim_pos = true;
-            pc_buffer[i + 1] = (char)NULL; // Terminate
-            break;
-        }
-    }
-    if (!b_found_trim_pos)
-    {
-        ESP_LOGW(SIO_UTIL_TAG, "util_extract_json(): TRIM RIGHT FAIL!");
-        return NULL;
-    }
-    i_strlen = strlen(pc_buffer);
-
-    return pc_buffer;
+    freeIfNotNull(&token);
+    return url;
 }
 
-#endif
+char *alloc_post_url(const sio_client_t *client)
+{
+    if (client == NULL || client->_server_session_id == NULL)
+    {
+        ESP_LOGE(TAG, "Server session id not set, was this client initialized? Client: %p", client);
+        return NULL;
+    }
+
+    char *token = alloc_random_string(SIO_TOKEN_SIZE);
+    size_t url_length =
+        strlen(client->transport == SIO_TRANSPORT_POLLING ? SIO_TRANSPORT_POLLING_PROTO_STRING : SIO_TRANSPORT_WEBSOCKETS_PROTO_STRING) +
+        strlen("://") +
+        strlen(client->server_address) +
+        strlen(client->sio_url_path) +
+        strlen("/?EIO=X&transport=") +
+        strlen(SIO_TRANSPORT_POLLING_STRING) +
+        strlen("&t=") + strlen(token) +
+        strlen("&sid=") + strlen(client->_server_session_id);
+
+    char *url = (char *)calloc(1, url_length + 1);
+
+    if (url == NULL)
+    {
+        assert(false && "Failed to allocate memory for handshake url");
+        return NULL;
+    }
+
+    sprintf(
+        url,
+        "%s://%s%s/?EIO=%d&transport=%s&t=%s&sid=%s",
+        SIO_TRANSPORT_POLLING_PROTO_STRING,
+        client->server_address,
+        client->sio_url_path,
+        client->eio_version,
+        SIO_TRANSPORT_POLLING_STRING,
+        token,
+        client->_server_session_id);
+
+    freeIfNotNull(&token);
+    return url;
+}
+
+char *alloc_polling_get_url(const sio_client_t *client)
+{
+    return alloc_post_url(client);
+}

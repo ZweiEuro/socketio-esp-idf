@@ -1,7 +1,7 @@
 
 #include <internal/task_functions.h>
 #include <internal/sio_packet.h>
-#include <http_handlers.h>
+#include <http_polling_handlers.h>
 
 #include <sio_client.h>
 #include <sio_types.h>
@@ -10,20 +10,24 @@
 
 static const char *TAG = "[SIO_TASK:polling]";
 
+#define ESP_LOGD(TAG, ...) ESP_LOGI(TAG, __VA_ARGS__)
+
 void sio_polling_task(void *pvParameters)
 {
-    sio_client_id_t *clientId = (sio_client_id_t *)pvParameters;
+    sio_client_id_t clientId = *(sio_client_id_t *)pvParameters;
 
     static PacketPointerArray_t response_packets;
-    ESP_LOGI(TAG, "Started polling task");
+    ESP_LOGI(TAG, "Started polling task for client %d", clientId);
     while (true)
     {
         response_packets = NULL;
-        sio_client_t *client = sio_client_get_and_lock(*clientId);
+        sio_client_t *client = sio_client_get_and_lock(clientId);
 
-        if (!client->polling_client_running)
+        assert(client != NULL && "Client is NULL");
+
+        if (client->status != SIO_CLIENT_STATUS_POLLING)
         {
-            ESP_LOGI(TAG, "Stopping polling task");
+            ESP_LOGI(TAG, "Stopping polling task, status is %d", client->status);
             unlockClient(client);
             break;
         }
@@ -104,7 +108,7 @@ void sio_polling_task(void *pvParameters)
                 ESP_LOGD(TAG, "Received ping packet, sending pong back");
 
                 Packet_t *p = (Packet_t *)calloc(1, sizeof(Packet_t));
-                p->data = calloc(1, 2);
+                p->data = (char *)calloc(1, 2);
                 p->len = 2;
                 setEioType(p, EIO_PACKET_PONG);
                 esp_err_t ret = sio_send_packet(client->client_id, p);
@@ -138,7 +142,7 @@ void sio_polling_task(void *pvParameters)
 
         ESP_LOGI(TAG, "Poller Received %d packets", get_array_size(response_packets));
         sio_event_data_t event_data = {
-            .client_id = *clientId,
+            .client_id = clientId,
             .packets_pointer = response_packets,
             .len = get_array_size(response_packets)};
 
@@ -147,19 +151,19 @@ void sio_polling_task(void *pvParameters)
 end:
 
     sio_event_data_t event_data = {
-        .client_id = *clientId,
+        .client_id = clientId,
         .packets_pointer = NULL,
         .len = 0};
 
-    esp_event_post(SIO_EVENT, SIO_EVENT_DISCONNECTED, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
+    sio_client_t *client = sio_client_get_and_lock(clientId);
 
-    sio_client_t *client = sio_client_get_and_lock(*clientId);
-
-    client->polling_client_running = false;
+    client->status = SIO_CLIENT_STATUS_CLOSED;
+    esp_http_client_close(client->polling_client);
     esp_http_client_cleanup(client->polling_client);
     client->polling_client = NULL;
 
     unlockClient(client);
 
+    esp_event_post(SIO_EVENT, SIO_EVENT_DISCONNECTED, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
     vTaskDelete(NULL);
 }

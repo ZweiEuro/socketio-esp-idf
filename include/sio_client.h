@@ -6,7 +6,7 @@ extern "C"
 #endif
 
 #include <sio_types.h>
-#include <internal/http_handlers.h>
+#include <internal/http_polling_handlers.h>
 #include <internal/sio_packet.h>
 
 #include "freertos/FreeRTOS.h"
@@ -53,6 +53,8 @@ extern "C"
         sio_client_id_t client_id;
         SemaphoreHandle_t client_lock;
 
+        sio_client_status_t status;
+
         uint8_t eio_version;
 
         char *server_address;
@@ -68,15 +70,12 @@ extern "C"
         uint16_t server_ping_interval_ms; /* Server-configured ping interval */
         uint16_t server_ping_timeout_ms;  /* Server-configured ping wait-timeout */
 
-        char *server_session_id; /* SocketIO session ID */
+        char *_server_session_id; /* SocketIO session ID */
 
         // used internally
         esp_http_client_handle_t handshake_client; /* Used to establish first connection*/
-
-        esp_http_client_handle_t polling_client; /* Used for continuous polling */
-        bool polling_client_running;
-
-        esp_http_client_handle_t posting_client; /* Used for posting messages */
+        esp_http_client_handle_t polling_client;   /* Used for continuous polling */
+        esp_http_client_handle_t posting_client;   /* Used for posting messages */
     };
 
     ESP_EVENT_DECLARE_BASE(SIO_EVENT);
@@ -90,7 +89,6 @@ extern "C"
     sio_client_id_t sio_client_init(const sio_client_config_t *config);
     void sio_client_destroy(sio_client_id_t clientId);
 
-    bool sio_client_is_inited(const sio_client_id_t clientId);
     bool sio_client_is_connected(sio_client_id_t clientId);
     esp_err_t sio_client_close(const sio_client_id_t clientId);
 

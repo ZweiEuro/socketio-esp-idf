@@ -5,14 +5,11 @@ extern "C"
 {
 #endif
 
-
 #include <esp_types.h>
-
 
 #ifndef CONFIG_LOG_DEFAULT_LEVEL
 #define CONFIG_LOG_DEFAULT_LEVEL 3
 #endif
-
 
     typedef int8_t sio_client_id_t;
 
@@ -54,10 +51,14 @@ extern "C"
         SIO_EVENT_DISCONNECTED             /* SocketIO Client disconnected */
     } sio_event_t;
 
-    typedef enum
+    typedef enum sio_client_status
     {
-        SIO_CLIENT_DISCONNECTED = 0,
-        SIO_CLIENT_CONNECTED,
+        SIO_CLIENT_INITED = 0, // waiting for begin or handshake
+        SIO_CLIENT_WAITING_AP, // waiting for AP conection
+        SIO_CLIENT_CLOSING,
+        SIO_CLIENT_STATUS_CLOSED,
+        SIO_CLIENT_STATUS_HANDSHAKING,
+        SIO_CLIENT_STATUS_POLLING,
     } sio_client_status_t;
 
     typedef enum

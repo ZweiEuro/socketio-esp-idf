@@ -1,4 +1,4 @@
-#include <internal/http_handlers.h>
+#include <internal/http_polling_handlers.h>
 #include <internal/sio_packet.h>
 #include <utility.h>
 #include <sio_types.h>
@@ -181,7 +181,7 @@ esp_err_t http_client_polling_get_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-esp_err_t http_client_polling_post_handler(esp_http_client_event_t *evt) // Any will do fine, posting is not done with the handler, handler only handles receiving
+esp_err_t http_client_polling_post_handler(esp_http_client_event_t *evt) // Any will do fine, posting is not done with the handler, handler only handles receiving the response
 {
     return http_client_polling_get_handler(evt);
 }
