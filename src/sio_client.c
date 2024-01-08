@@ -15,7 +15,7 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
 
     if (sio_client_map == NULL)
     {
-        sio_client_map = (sio_client_t *)calloc(SIO_MAX_PARALLEL_SOCKETS, sizeof(sio_client_t *));
+        sio_client_map = (sio_client_t **)calloc(SIO_MAX_PARALLEL_SOCKETS, sizeof(sio_client_t *));
         // set all pointers to null
         for (uint8_t i = 0; i < SIO_MAX_PARALLEL_SOCKETS; i++)
         {
@@ -102,14 +102,14 @@ esp_err_t sio_client_close(sio_client_id_t clientId)
         break;
 
     case SIO_CLIENT_STATUS_HANDSHAKING:
-    case SIO_CLIENT_STATUS_POLLING:
+    case SIO_CLIENT_STATUS_CONNECTED:
         // handshaking is controlled by a flag, so we set to closed and wait
-        // for the handshake to finish or fail
+        // for the sio_handshake to finish or fail
         // and now send the close packet to the server since we were connected
         client->status = SIO_CLIENT_CLOSING;
         unlockClient(client);
 
-        // send close packet, this may fail if the handshake failed as well but that is ok
+        // send close packet, this may fail if the sio_handshake failed as well but that is ok
         Packet_t *p = (Packet_t *)calloc(1, sizeof(Packet_t));
         p->data = calloc(1, 2);
         p->len = 2;
@@ -216,7 +216,7 @@ bool sio_client_exists(const sio_client_id_t clientId)
 
 void unlockClient(sio_client_t *client)
 {
-    ESP_LOGD(TAG, "Unlocking client %p", client);
+    ESP_LOGD(TAG, "Unlocking client %d", client->client_id);
     xSemaphoreGive(client->client_lock);
 }
 
@@ -228,7 +228,6 @@ void lockClient(sio_client_t *client)
 
 sio_client_t *sio_client_get_and_lock(const sio_client_id_t clientId)
 {
-    ESP_LOGD(TAG, "Getting and locking client %d", clientId);
     if (sio_client_exists(clientId))
     {
         lockClient(sio_client_map[clientId]);
@@ -236,7 +235,6 @@ sio_client_t *sio_client_get_and_lock(const sio_client_id_t clientId)
     }
     else
     {
-        ESP_LOGW(TAG, "Client %d is not inited", clientId);
         return NULL;
     }
 }

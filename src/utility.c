@@ -54,7 +54,7 @@ char *alloc_handshake_get_url(const sio_client_t *client)
     char *url = (char *)calloc(1, url_length + 1);
     if (url == NULL)
     {
-        assert(false && "Failed to allocate memory for handshake url");
+        assert(false && "Failed to allocate memory for sio_handshake url");
         return NULL;
     }
 
@@ -95,7 +95,7 @@ char *alloc_post_url(const sio_client_t *client)
 
     if (url == NULL)
     {
-        assert(false && "Failed to allocate memory for handshake url");
+        assert(false && "Failed to allocate memory for sio_handshake url");
         return NULL;
     }
 

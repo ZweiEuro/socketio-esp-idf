@@ -113,6 +113,10 @@ extern "C"
         int len;
     } sio_event_data_t;
 
+    // SIO worker task
+
+    esp_err_t sio_init();
+
 #ifdef __cplusplus
 }
 #endif
