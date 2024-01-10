@@ -105,7 +105,15 @@ void sio_polling_task(void *pvParameters)
                 {
                     ESP_LOGE(TAG, "Failed to send PONG packet");
                 }
+                else
+                {
+
+                    sio_client_t *client = sio_client_get_and_lock(clientId);
+                    time(&client->last_sent_pong);
+                    unlockClient(client);
+                }
                 free_packet(&p);
+
                 break;
 
             case EIO_PACKET_CLOSE:

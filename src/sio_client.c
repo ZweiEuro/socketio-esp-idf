@@ -68,6 +68,7 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
 
     client->server_ping_interval_ms = 0;
     client->server_ping_timeout_ms = 0;
+    client->last_sent_pong = 0;
 
     client->_server_session_id = NULL;
     client->handshake_client = NULL;
@@ -195,6 +196,21 @@ void sio_client_destroy(sio_client_id_t clientId)
     }
 }
 
+void sio_client_print_status(const sio_client_id_t clientId)
+{
+    if (!sio_client_exists(clientId))
+    {
+        ESP_LOGE(TAG, "Client %d does not exist", clientId);
+        return;
+    }
+
+    sio_client_t *client = sio_client_get_and_lock(clientId);
+
+    ESP_LOGI(TAG, "Client %d status: %d, last sent pong: %s",
+             clientId, client->status, asctime(localtime(&client->last_sent_pong)));
+
+    unlockClient(client);
+}
 /// ---- runtime Locking
 
 bool sio_client_exists(const sio_client_id_t clientId)

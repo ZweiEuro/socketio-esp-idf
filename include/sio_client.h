@@ -69,6 +69,7 @@ extern "C"
         // info gotten from the server
         uint16_t server_ping_interval_ms; /* Server-configured ping interval */
         uint16_t server_ping_timeout_ms;  /* Server-configured ping wait-timeout */
+        time_t last_sent_pong;            /* Last time a ping was received */
 
         char *_server_session_id; /* SocketIO session ID */
 
@@ -94,6 +95,7 @@ extern "C"
 
     esp_err_t sio_send_packet(const sio_client_id_t clientId, const Packet_t *packet);
     esp_err_t sio_send_string(const sio_client_id_t clientId, const char *data);
+    void sio_client_print_status(const sio_client_id_t clientId);
 
     // locks the semaphore, get it first before doing
     // any writing else it will most certainly produce race conditions
