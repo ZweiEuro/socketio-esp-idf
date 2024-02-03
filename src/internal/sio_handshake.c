@@ -30,6 +30,12 @@ esp_err_t sio_handshake(sio_client_t *client)
         err = handshake_polling(client);
     }
 
+    if (err == ESP_ERR_INVALID_STATE)
+    {
+        // this means it has been closed
+        return ESP_FAIL;
+    }
+
     if (err != ESP_OK)
     {
         client->status = SIO_CLIENT_STATUS_ERROR;
@@ -96,7 +102,7 @@ esp_err_t handshake_polling(sio_client_t *client)
             ESP_LOGW(TAG, "Handshake cancelled, client status is %d", client_status);
             esp_http_client_close(client->handshake_client);
 
-            return ESP_FAIL;
+            return ESP_ERR_INVALID_STATE;
         }
 
         ESP_LOGI(TAG, "Sending sio_handshake");
