@@ -7,6 +7,7 @@ extern "C"
 
 #include <string.h>
 
+#include <sio_client.h>
 #include "esp_types.h"
 #include "esp_log.h"
 #include "esp_err.h"
@@ -26,6 +27,9 @@ extern "C"
         int end);
 
     char *util_extract_json(char *pcBuffer);
+
+    char *alloc_post_url(const sio_client_t *client);
+    char *alloc_handshake_get_url(const sio_client_t *client);
 
 #ifdef __cplusplus
 }

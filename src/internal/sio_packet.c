@@ -6,7 +6,7 @@
 
 #include <sio_client.h>
 
-const char *TAG = "[sio_packet]";
+static const char *TAG = "[sio_packet]";
 const char *empty_str = "";
 
 static const char base64_table[65] =

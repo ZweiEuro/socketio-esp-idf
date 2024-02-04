@@ -8,12 +8,14 @@ static const char *TAG = "[sio_client]";
 
 sio_client_t **sio_client_map = (sio_client_t **)NULL;
 
+bool sio_client_exists(const sio_client_id_t clientId);
+
 sio_client_id_t sio_client_init(const sio_client_config_t *config)
 {
 
     if (sio_client_map == NULL)
     {
-        sio_client_map = calloc(SIO_MAX_PARALLEL_SOCKETS, sizeof(sio_client_t *));
+        sio_client_map = (sio_client_t **)calloc(SIO_MAX_PARALLEL_SOCKETS, sizeof(sio_client_t *));
         // set all pointers to null
         for (uint8_t i = 0; i < SIO_MAX_PARALLEL_SOCKETS; i++)
         {
@@ -48,13 +50,14 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
 
     // copy from config everyting over
 
-    sio_client_t *client = calloc(1, sizeof(sio_client_t));
+    sio_client_t *client = (sio_client_t *)calloc(1, sizeof(sio_client_t));
 
     client->client_id = slot;
     client->client_lock = xSemaphoreCreateBinary();
 
+    client->status = SIO_CLIENT_INITED;
+
     assert(client->client_lock != NULL && "Could not create client lock");
-    xSemaphoreGive(client->client_lock);
 
     client->eio_version = config->eio_version == 0 ? SIO_DEFAULT_EIO_VERSION : config->eio_version;
 
@@ -65,8 +68,9 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
 
     client->server_ping_interval_ms = 0;
     client->server_ping_timeout_ms = 0;
+    client->last_sent_pong = 0;
 
-    client->server_session_id = NULL;
+    client->_server_session_id = NULL;
     client->handshake_client = NULL;
     client->alloc_auth_body_cb = config->alloc_auth_body_cb;
 
@@ -76,28 +80,76 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
     client->posting_client = NULL;
     client->handshake_client = NULL;
 
-    client->polling_client_running = false;
-
     sio_client_map[slot] = client;
+
+    xSemaphoreGive(client->client_lock);
 
     ESP_LOGD(TAG, "inited client %d @ %p", slot, client);
 
     return (sio_client_id_t)slot;
 }
 
+esp_err_t sio_client_close(sio_client_id_t clientId)
+{
+    sio_client_t *client = sio_client_get_and_lock(clientId);
+
+    switch (client->status)
+    {
+    case SIO_CLIENT_INITED:
+    case SIO_CLIENT_STATUS_CLOSED:
+    case SIO_CLIENT_CLOSING:
+        ESP_LOGI(TAG, "Client %d in state %d closing not necessary, or in progress",
+                 clientId, client->status);
+        break;
+
+    case SIO_CLIENT_STATUS_HANDSHAKING:
+    case SIO_CLIENT_STATUS_CONNECTED:
+        // handshaking is controlled by a flag, so we set to closed and wait
+        // for the sio_handshake to finish or fail
+        // and now send the close packet to the server since we were connected
+        client->status = SIO_CLIENT_CLOSING;
+        unlockClient(client);
+
+        // send close packet, this may fail if the sio_handshake failed as well but that is ok
+        Packet_t *p = (Packet_t *)calloc(1, sizeof(Packet_t));
+        p->data = calloc(1, 2);
+        p->len = 2;
+        setEioType(p, EIO_PACKET_CLOSE);
+
+        sio_send_packet(clientId, p);
+
+        client = sio_client_get_and_lock(clientId);
+
+        break;
+
+    default:
+        break;
+    }
+
+    client->status = SIO_CLIENT_STATUS_CLOSED;
+
+    ESP_LOGI(TAG, "Client %d in state %d closed",
+             clientId, client->status);
+
+    unlockClient(client);
+    return ESP_OK;
+}
+
 void sio_client_destroy(sio_client_id_t clientId)
 {
-    if (!sio_client_is_inited(clientId))
+    if (!sio_client_exists(clientId))
     {
         return;
     }
 
-    sio_client_t *client = sio_client_map[clientId];
+    sio_client_t *client = sio_client_get_and_lock(clientId);
 
-    if (client->polling_client_running)
+    if (client->status != SIO_CLIENT_STATUS_CLOSED)
     {
-        ESP_LOGE(TAG, "Polling client is running, stop it first");
-        return;
+        ESP_LOGW(TAG, "Closing client that is not  yet closed");
+        unlockClient(client);
+        sio_client_close(clientId);
+        client = sio_client_get_and_lock(clientId);
     }
 
     freeIfNotNull(&client->server_address);
@@ -105,7 +157,7 @@ void sio_client_destroy(sio_client_id_t clientId)
     freeIfNotNull(&client->nspc);
 
     // could be allocated
-    freeIfNotNull(&client->server_session_id);
+    freeIfNotNull(&client->_server_session_id);
 
     // Remove the semaphore, cleanup all handlers
     vSemaphoreDelete(client->client_lock);
@@ -144,11 +196,29 @@ void sio_client_destroy(sio_client_id_t clientId)
     }
 }
 
-bool sio_client_is_inited(const sio_client_id_t clientId)
+void sio_client_print_status(const sio_client_id_t clientId)
+{
+    if (!sio_client_exists(clientId))
+    {
+        ESP_LOGE(TAG, "Client %d does not exist", clientId);
+        return;
+    }
+
+    sio_client_t *client = sio_client_get_and_lock(clientId);
+
+    ESP_LOGI(TAG, "Client %d status: %d, last sent pong: %s",
+             clientId, client->status, asctime(localtime(&client->last_sent_pong)));
+
+    unlockClient(client);
+}
+/// ---- runtime Locking
+
+bool sio_client_exists(const sio_client_id_t clientId)
 {
 
     if (sio_client_map == NULL)
     {
+        // nothing exists
         return false;
     }
 
@@ -160,24 +230,9 @@ bool sio_client_is_inited(const sio_client_id_t clientId)
     return sio_client_map[clientId] != NULL;
 }
 
-sio_client_t *sio_client_get_and_lock(const sio_client_id_t clientId)
-{
-    ESP_LOGD(TAG, "Getting and locking client %d", clientId);
-    if (sio_client_is_inited(clientId))
-    {
-        lockClient(sio_client_map[clientId]);
-        return sio_client_map[clientId];
-    }
-    else
-    {
-        ESP_LOGW(TAG, "Client %d is not inited", clientId);
-        return NULL;
-    }
-}
-
 void unlockClient(sio_client_t *client)
 {
-    ESP_LOGD(TAG, "Unlocking client %p", client);
+    ESP_LOGD(TAG, "Unlocking client %d", client->client_id);
     xSemaphoreGive(client->client_lock);
 }
 
@@ -187,10 +242,23 @@ void lockClient(sio_client_t *client)
     xSemaphoreTake(client->client_lock, portMAX_DELAY);
 }
 
+sio_client_t *sio_client_get_and_lock(const sio_client_id_t clientId)
+{
+    if (sio_client_exists(clientId))
+    {
+        lockClient(sio_client_map[clientId]);
+        return sio_client_map[clientId];
+    }
+    else
+    {
+        return NULL;
+    }
+}
+
 bool sio_client_is_locked(const sio_client_id_t clientId)
 {
 
-    if (!sio_client_is_inited(clientId))
+    if (!sio_client_exists(clientId))
     {
         return NULL;
     }
