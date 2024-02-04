@@ -98,11 +98,11 @@ esp_err_t sio_client_close(sio_client_id_t clientId)
     case SIO_CLIENT_INITED:
     case SIO_CLIENT_STATUS_CLOSED:
     case SIO_CLIENT_CLOSING:
+    case SIO_CLIENT_STATUS_HANDSHAKING:
         ESP_LOGI(TAG, "Client %d in state %d closing not necessary, or in progress",
                  clientId, client->status);
         break;
 
-    case SIO_CLIENT_STATUS_HANDSHAKING:
     case SIO_CLIENT_STATUS_CONNECTED:
         // handshaking is controlled by a flag, so we set to closed and wait
         // for the sio_handshake to finish or fail
@@ -121,6 +121,8 @@ esp_err_t sio_client_close(sio_client_id_t clientId)
         client = sio_client_get_and_lock(clientId);
 
         break;
+
+    case SIO_CLIENT_STATUS_ERROR:
 
     default:
         break;
