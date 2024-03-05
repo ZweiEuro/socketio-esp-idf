@@ -93,6 +93,11 @@ esp_err_t sio_client_close(sio_client_id_t clientId)
 {
     sio_client_t *client = sio_client_get_and_lock(clientId);
 
+    if (client == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     switch (client->status)
     {
     case SIO_CLIENT_INITED:
@@ -118,7 +123,16 @@ esp_err_t sio_client_close(sio_client_id_t clientId)
 
         sio_send_packet(clientId, p);
 
+        // wait for the polling client to close
+        while (sio_client_get_and_lock(clientId)->polling_client == NULL)
+        {
+            ESP_LOGI(TAG, "Waiting for polling client tot close");
+            unlockClient(client);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+
         client = sio_client_get_and_lock(clientId);
+        client->status = SIO_CLIENT_CLOSING;
 
         break;
 
@@ -151,6 +165,7 @@ void sio_client_destroy(sio_client_id_t clientId)
         ESP_LOGW(TAG, "Closing client that is not  yet closed");
         unlockClient(client);
         sio_client_close(clientId);
+
         client = sio_client_get_and_lock(clientId);
     }
 
@@ -220,6 +235,7 @@ bool sio_client_exists(const sio_client_id_t clientId)
 
     if (sio_client_map == NULL)
     {
+        ESP_LOGW(TAG, "client does not exist");
         // nothing exists
         return false;
     }

@@ -105,7 +105,7 @@ esp_err_t handshake_polling(sio_client_t *client)
             return ESP_ERR_INVALID_STATE;
         }
 
-        ESP_LOGI(TAG, "Sending sio_handshake");
+        ESP_LOGI(TAG, "Sending sio_handshake status: %d", client_status);
         assert(client_handshake_http_client != NULL);
 
         // UNSAFE START
@@ -115,9 +115,10 @@ esp_err_t handshake_polling(sio_client_t *client)
         client = sio_client_get_and_lock(client_id);
         // UNSAFE END
 
-        if (err == ESP_ERR_HTTP_EAGAIN || err == ESP_ERR_HTTP_CONNECT)
+        if (err != ESP_OK)
         {
             ESP_LOGW(TAG, "Handshake failed, retrying: %s ", esp_err_to_name(err));
+
             goto retry_handshake;
         }
 

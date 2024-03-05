@@ -30,6 +30,13 @@ void sio_got_ip(void *arg, esp_event_base_t event_base,
                 int32_t event_id, void *event_data)
 
 {
+    ESP_LOGI(TAG, "Wifi got new ip, start closed sessions everything");
+
+    for (sio_client_id_t clientId = 0; clientId < SIO_MAX_PARALLEL_SOCKETS; clientId++)
+    {
+        sio_client_begin(clientId);
+    }
+
     xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
 }
 
@@ -38,6 +45,12 @@ void sio_sta_lost(void *arg, esp_event_base_t event_base,
 
 {
     xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT);
+    // stop all clients
+    ESP_LOGI(TAG, "Wifi disconnected, stop everything");
+    for (sio_client_id_t clientId = 0; clientId < SIO_MAX_PARALLEL_SOCKETS; clientId++)
+    {
+        sio_client_close(clientId);
+    }
 }
 
 // call this before first callin esp_wifi_start();
