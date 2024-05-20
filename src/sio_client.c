@@ -134,6 +134,8 @@ esp_err_t sio_client_close(sio_client_id_t clientId)
         client = sio_client_get_and_lock(clientId);
         client->status = SIO_CLIENT_CLOSING;
 
+        ESP_LOGI(TAG, "Closed client %d which was in state %d", clientId, client->status);
+
         break;
 
     case SIO_CLIENT_STATUS_ERROR:
@@ -144,8 +146,7 @@ esp_err_t sio_client_close(sio_client_id_t clientId)
 
     client->status = SIO_CLIENT_STATUS_CLOSED;
 
-    ESP_LOGI(TAG, "Client %d in state %d closed",
-             clientId, client->status);
+   
 
     unlockClient(client);
     return ESP_OK;
