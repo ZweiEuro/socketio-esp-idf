@@ -69,19 +69,17 @@ extern "C"
         // info gotten from the server
         uint16_t server_ping_interval_ms; /* Server-configured ping interval */
         uint16_t server_ping_timeout_ms;  /* Server-configured ping wait-timeout */
-        time_t last_sent_pong;            /* Last time a ping was received */
 
         char *_server_session_id; /* SocketIO session ID */
 
         // used internally
-        esp_http_client_handle_t handshake_client; /* Used to establish first connection*/
-        esp_http_client_handle_t polling_client;   /* Used for continuous polling */
-        esp_http_client_handle_t posting_client;   /* Used for posting messages */
+        // Only needed when you are killing the task abd tge client is not closed
+        esp_http_client_handle_t polling_client;
+
+        TaskHandle_t polling_task_handle; /* Task handle for polling task */
     };
 
     ESP_EVENT_DECLARE_BASE(SIO_EVENT);
-
-    esp_err_t sio_client_begin(const sio_client_id_t clientId);
 
     void unlockClient(sio_client_t *client);
     void lockClient(sio_client_t *client);
@@ -95,7 +93,6 @@ extern "C"
 
     esp_err_t sio_send_packet(const sio_client_id_t clientId, const Packet_t *packet);
     esp_err_t sio_send_string(const sio_client_id_t clientId, const char *data);
-    void sio_client_print_status(const sio_client_id_t clientId);
 
     // locks the semaphore, get it first before doing
     // any writing else it will most certainly produce race conditions
@@ -118,6 +115,8 @@ extern "C"
     // SIO worker task
 
     esp_err_t sio_init();
+
+    // useful macro
 
 #ifdef __cplusplus
 }

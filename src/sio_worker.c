@@ -30,12 +30,7 @@ void sio_got_ip(void *arg, esp_event_base_t event_base,
                 int32_t event_id, void *event_data)
 
 {
-    ESP_LOGI(TAG, "Wifi got new ip, start closed sessions everything");
-
-    for (sio_client_id_t clientId = 0; clientId < SIO_MAX_PARALLEL_SOCKETS; clientId++)
-    {
-        sio_client_begin(clientId);
-    }
+    ESP_LOGI(TAG, "Wifi got new ip, restart worker");
 
     xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
 }
@@ -89,79 +84,62 @@ void sio_worker_task(void *pvParameters)
 
         // go through all SIO clients and connect those that are waiting to be started
 
-        for (sio_client_id_t clientId = 0; clientId < SIO_MAX_PARALLEL_SOCKETS; clientId++)
+        for (sio_client_id_t client_index = 0; client_index < SIO_MAX_PARALLEL_SOCKETS; client_index++)
         {
-            sio_client_t *client = sio_client_get_and_lock(clientId);
+            sio_client_t *client = sio_client_get_and_lock(client_index);
 
             if (client == NULL)
             {
                 continue;
             }
 
-            if (client->status != SIO_CLIENT_STARTING)
+            const sio_client_id_t clientId = client->client_id;
+
+            if (client->status == SIO_CLIENT_STATUS_CONNECTED)
             {
+                // ESP_LOGI(TAG, "Client %d already connected", clientId);
                 unlockClient(client);
                 continue;
             }
 
-            // do handshake
-            esp_err_t err = sio_handshake(client);
-
-            if (err != ESP_OK)
+            if (client->status == SIO_CLIENT_ERROR)
             {
-                ESP_LOGI(TAG, "Handshake failed for client %d %s",
-                         client->client_id, esp_err_to_name(err));
-
-                goto clientError;
+                ESP_LOGI(TAG, "Client %d in error state, closing", clientId);
+                sio_client_close(clientId);
+                unlockClient(client);
+                continue;
             }
 
-            ESP_LOGI(TAG, "Handshake succeeded for client %d", client->client_id);
+            // connect it
+            esp_err_t err = sio_connect(client);
 
-            err = sio_connect(client);
+            // in either case the client is "done"
+            unlockClient(client);
 
-            if (err != ESP_OK)
+            if (err == ESP_OK)
+            {
+                ESP_LOGI(TAG, "Connect succeeded for client %d", client->client_id);
+
+                sio_event_data_t event_data = {
+                    .client_id = client->client_id,
+                    .packets_pointer = NULL,
+                    .len = 0};
+                esp_event_post(SIO_EVENT, SIO_EVENT_CONNECTED, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
+            }
+            else
             {
                 ESP_LOGI(TAG, "Connect failed for client %d %s",
                          client->client_id, esp_err_to_name(err));
 
-                goto clientError;
+                sio_event_data_t event_data = {
+                    .client_id = client_index,
+                    .packets_pointer = NULL,
+                    .len = 0};
+                esp_event_post(SIO_EVENT, SIO_EVENT_CONNECT_ERROR, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
             }
-
-            ESP_LOGI(TAG, "Connect succeeded for client %d", client->client_id);
-
-            // start connection
-
-        clientError:
-            unlockClient(client);
         }
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
     ESP_LOGE(TAG, "SIO worker task started");
     assert(false);
-}
-
-esp_err_t sio_client_begin(const sio_client_id_t clientId)
-{
-
-    sio_client_t *client = sio_client_get_and_lock(clientId);
-
-    if (client == NULL)
-    {
-        ESP_LOGE(TAG, "Client %d does not exist", clientId);
-        return ESP_FAIL;
-    }
-
-    if (client->status != SIO_CLIENT_INITED &&
-        client->status != SIO_CLIENT_STATUS_CLOSED)
-    {
-        ESP_LOGE(TAG, "Client %d is not in INITED or CLOSED state, but in %d", clientId, client->status);
-        unlockClient(client);
-        return ESP_FAIL;
-    }
-
-    client->status = SIO_CLIENT_STARTING;
-
-    unlockClient(client);
-
-    return ESP_OK;
 }

@@ -78,7 +78,8 @@ esp_err_t http_client_polling_get_handler(esp_http_client_event_t *evt)
             if (response_arr != NULL)
             {
                 ESP_LOGE(TAG, "User data is not null, this should not happen");
-                goto freeBuffers;
+                free_packet_arr(&response_arr);
+                response_arr = NULL;
             }
 
             ESP_LOGD(TAG, "Received %i bytes of data  destination for arr pointer %p, %s,",

@@ -1,3 +1,3 @@
 #pragma once
 
-void sio_polling_task(void *pvParameters);
+void sio_continuous_polling_task(void *pvParameters);

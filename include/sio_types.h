@@ -54,13 +54,9 @@ extern "C"
     typedef enum sio_client_status
     {
         SIO_CLIENT_INITED = 0, // waiting for begin or sio_handshake
-        SIO_CLIENT_STARTING,   // waiting for AP conection
-        SIO_CLIENT_CLOSING,
-        SIO_CLIENT_STATUS_CLOSED,
-        SIO_CLIENT_STATUS_HANDSHAKING,
-        SIO_CLIENT_STATUS_HANDSHOOK,
-        SIO_CLIENT_STATUS_CONNECTED,
-        SIO_CLIENT_STATUS_ERROR
+        SIO_CLIENT_CLOSED,
+        SIO_CLIENT_ERROR,
+        SIO_CLIENT_STATUS_CONNECTED
     } sio_client_status_t;
 
     typedef enum

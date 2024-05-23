@@ -14,8 +14,7 @@ extern "C"
 
     // NOT THREAD SAVE
     esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet);
-    // NOT THREAD SAVE
-    esp_err_t sio_send_packet_websocket(sio_client_t *client, const Packet_t *packet);
+
 #ifdef __cplusplus
 }
 #endif

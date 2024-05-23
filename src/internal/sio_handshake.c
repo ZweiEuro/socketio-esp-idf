@@ -10,127 +10,118 @@
 #include <esp_log.h>
 
 esp_err_t handshake_polling(sio_client_t *client);
-esp_err_t handshake_websocket(sio_client_t *client);
 
 static const char *TAG = "[sio_handshake]";
 
+static esp_http_client_handle_t sio_handshake_client = NULL;
+static PacketPointerArray_t packets = NULL;
+static SemaphoreHandle_t sio_handshake_lock = NULL;
+
 esp_err_t sio_handshake(sio_client_t *client)
 {
-    assert(client->status != SIO_CLIENT_STATUS_HANDSHAKING && "Client is already handshaking");
-    client->status = SIO_CLIENT_STATUS_HANDSHAKING;
+
+    assert(client != NULL && "Client is NULL");
+    assert(sio_client_is_locked(client->client_id) && "Client is not locked");
+
+    if (sio_handshake_lock == NULL)
+    {
+        sio_handshake_lock = xSemaphoreCreateMutex();
+    }
+    else
+    {
+        xSemaphoreTake(sio_handshake_lock, portMAX_DELAY);
+    }
 
     esp_err_t err = ESP_FAIL;
 
     if (client->transport == SIO_TRANSPORT_WEBSOCKETS)
     {
-        err = handshake_websocket(client);
+        assert(false && "Not implemented");
     }
     else if (client->transport == SIO_TRANSPORT_POLLING)
     {
         err = handshake_polling(client);
     }
 
-    if (err == ESP_ERR_INVALID_STATE)
-    {
-        // this means it has been closed
-        return ESP_FAIL;
-    }
-
     if (err != ESP_OK)
     {
-        client->status = SIO_CLIENT_STATUS_ERROR;
+        // should any error occur, remove the http cleanup and NULL the client
+        esp_http_client_cleanup(sio_handshake_client);
+        sio_handshake_client = NULL;
+    }
 
-        ESP_LOGW(TAG, "Handshake failed, sending error event");
-        sio_event_data_t event_data = {
-            .client_id = client->client_id,
-            .packets_pointer = NULL,
-            .len = 0};
-        esp_event_post(SIO_EVENT, SIO_EVENT_CONNECT_ERROR, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
-    }
-    else
+    if (packets != NULL)
     {
-        client->status = SIO_CLIENT_STATUS_HANDSHOOK;
+        free_packet_arr(&packets);
+        packets = NULL;
     }
+
+    xSemaphoreGive(sio_handshake_lock);
 
     return err;
+}
+
+esp_err_t send_auth_package_polling(sio_client_t *client, Packet_t *packet)
+{
+    assert(false && "Not implemented");
+    return ESP_FAIL;
 }
 
 esp_err_t handshake_polling(sio_client_t *client)
 {
 
-    const sio_client_id_t client_id = client->client_id;
-
-    static PacketPointerArray_t packets;
-    packets = NULL;
     // scope for first url without session id
 
-    assert(client->handshake_client == NULL && "Handshake client already exists");
+    esp_err_t err = ESP_FAIL;
 
+    if (sio_handshake_client == NULL)
     {
+        // if there is none, init a client
 
         char *url = alloc_handshake_get_url(client);
-
-        // Form the request URL
 
         esp_http_client_config_t config = {
             .url = url,
             .method = HTTP_METHOD_GET,
+            .timeout_ms = 5000,
             .disable_auto_redirect = true,
             .event_handler = http_client_polling_get_handler,
-            .user_data = &packets,
-            .timeout_ms = 5000};
+            .user_data = &packets};
 
-        client->handshake_client = esp_http_client_init(&config);
+        sio_handshake_client = esp_http_client_init(&config);
+        ESP_LOGI(TAG, "Handshake client init %p %s", sio_handshake_client, url);
+        free(url);
 
-        assert(client->handshake_client != NULL && "Failed to init http client");
+        esp_http_client_set_header(sio_handshake_client, "Content-Type", "text/html");
+        esp_http_client_set_header(sio_handshake_client, "Accept", "text/plain");
 
-        esp_http_client_set_url(client->handshake_client, url);
-        esp_http_client_set_method(client->handshake_client, HTTP_METHOD_GET);
-        esp_http_client_set_header(client->handshake_client, "Content-Type", "text/html");
-        esp_http_client_set_header(client->handshake_client, "Accept", "text/plain");
+        assert(sio_handshake_client != NULL && "Failed to init http client");
+    }
+    else
+    {
+        // edit the url if the client exists
+        char *url = alloc_handshake_get_url(client);
+        esp_http_client_set_url(sio_handshake_client, url);
         free(url);
     }
 
-    esp_err_t err = ESP_FAIL;
+    ESP_LOGI(TAG, "Sending sio_handshake status: %d", client->status);
+
+    err = esp_http_client_perform(sio_handshake_client);
+
+    esp_http_client_close(sio_handshake_client);
+
+    if (err != ESP_OK)
     {
-    retry_handshake:
-        sio_client_status_t client_status = client->status;
-        esp_http_client_handle_t client_handshake_http_client = client->handshake_client;
-
-        if (client_status != SIO_CLIENT_STATUS_HANDSHAKING)
-        {
-            ESP_LOGW(TAG, "Handshake cancelled, client status is %d", client_status);
-            esp_http_client_close(client->handshake_client);
-
-            return ESP_ERR_INVALID_STATE;
-        }
-
-        ESP_LOGI(TAG, "Sending sio_handshake status: %d", client_status);
-        assert(client_handshake_http_client != NULL);
-
-        // UNSAFE START
-        unlockClient(client);
-        client = NULL;
-        err = esp_http_client_perform(client_handshake_http_client);
-        client = sio_client_get_and_lock(client_id);
-        // UNSAFE END
-
-        if (err != ESP_OK)
-        {
-            ESP_LOGW(TAG, "Handshake failed, retrying: %s ", esp_err_to_name(err));
-
-            goto retry_handshake;
-        }
-
-        esp_http_client_close(client_handshake_http_client);
-        esp_http_client_cleanup(client_handshake_http_client);
-        client->handshake_client = NULL;
+        ESP_LOGW(TAG, "Handshake failed %s ", esp_err_to_name(err));
+        return err;
     }
+
     { // scope for var declaration error after cleanup
 
-        if (err != ESP_OK || packets == NULL)
+        if (packets == NULL)
         {
-            ESP_LOGE(TAG, "HTTP GET request failed: %s, packets pointer %p ", esp_err_to_name(err), packets);
+            ESP_LOGE(TAG, "Did not receive any packets");
             return err;
         }
 
@@ -193,7 +184,7 @@ esp_err_t handshake_polling(sio_client_t *client)
         }
         else if (client->transport == SIO_TRANSPORT_WEBSOCKETS)
         {
-            err = sio_send_packet_websocket(client, init_packet);
+            assert(false && "not implemented");
         }
         else
         {
@@ -205,10 +196,4 @@ esp_err_t handshake_polling(sio_client_t *client)
     }
 
     return err;
-}
-
-esp_err_t handshake_websocket(sio_client_t *client)
-{
-    assert(false && "Not implemented");
-    return ESP_FAIL;
 }

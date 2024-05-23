@@ -10,30 +10,34 @@
 
 static const char *TAG = "[SIO_TASK:polling]";
 
-void sio_polling_task(void *pvParameters)
+void sio_continuous_polling_task(void *pvParameters)
 {
     sio_client_id_t clientId = (sio_client_id_t)pvParameters;
 
     static PacketPointerArray_t response_packets;
+    esp_http_client_handle_t polling_client = NULL;
 
     // initializing polling task
     {
 
         sio_client_t *client = sio_client_get_and_lock(clientId);
 
-        assert(client);
+        assert(client != NULL && "Client is NULL");
         assert(client->polling_client == NULL && "Polling client is not NULL");
 
         char *url = alloc_polling_get_url(client);
 
         esp_http_client_config_t config = {
             .url = url,
+            .timeout_ms = (client->server_ping_interval_ms == 0 ? 5000 : (client->server_ping_interval_ms + client->server_ping_timeout_ms * 2)),
+            .disable_auto_redirect = true,
             .event_handler = http_client_polling_get_handler,
             .user_data = &response_packets,
-            .disable_auto_redirect = true,
-            .timeout_ms = (client->server_ping_interval_ms == 0 ? 5000 : (client->server_ping_interval_ms + client->server_ping_timeout_ms * 2))};
+        };
         client->polling_client = esp_http_client_init(&config);
         assert(client->polling_client != NULL && "Failed to init polling client");
+
+        polling_client = client->polling_client;
 
         unlockClient(client);
         free(url);
@@ -44,18 +48,8 @@ void sio_polling_task(void *pvParameters)
     while (true)
     {
         response_packets = NULL;
-        sio_client_t *client = sio_client_get_and_lock(clientId);
-        assert(client != NULL && "Client is NULL");
-        sio_client_status_t currentStatus = client->status;
-        unlockClient(client);
 
-        if (currentStatus != SIO_CLIENT_STATUS_CONNECTED)
-        {
-            ESP_LOGI(TAG, "Stopping polling task, status is %d", client->status);
-            goto end_ok;
-        }
-
-        esp_err_t err = esp_http_client_perform(client->polling_client);
+        esp_err_t err = esp_http_client_perform(polling_client);
 
         if (err != ESP_OK)
         {
@@ -65,23 +59,25 @@ void sio_polling_task(void *pvParameters)
             }
 
             // todo: emit DISCONNECTED event on any fail
-            int r = esp_http_client_get_errno(client->polling_client);
+            int r = esp_http_client_get_errno(polling_client);
             ESP_LOGE(TAG, "HTTP POLLING GET request failed: %s %i", esp_err_to_name(err), r);
-            goto end_error;
+            goto polling_error;
         }
 
-        int http_response_status_code = esp_http_client_get_status_code(client->polling_client);
-        int http_response_content_length = esp_http_client_get_content_length(client->polling_client);
+        {
+            int http_response_status_code = esp_http_client_get_status_code(polling_client);
+            int http_response_content_length = esp_http_client_get_content_length(polling_client);
 
-        if (http_response_status_code != 200)
-        {
-            ESP_LOGW(TAG, "Polling HTTP request failed with status code %d", http_response_status_code);
-            goto end_error;
-        }
-        if (http_response_content_length <= 0)
-        {
-            ESP_LOGW(TAG, "Polling HTTP request failed: No content returned.");
-            goto end_error;
+            if (http_response_status_code != 200)
+            {
+                ESP_LOGW(TAG, "Polling HTTP request failed with status code %d", http_response_status_code);
+                goto polling_error;
+            }
+            if (http_response_content_length <= 0)
+            {
+                ESP_LOGW(TAG, "Polling HTTP request failed: No content returned.");
+                goto polling_error;
+            }
         }
 
         // go through all messages and handle all non message related messages
@@ -100,18 +96,16 @@ void sio_polling_task(void *pvParameters)
                 p->data = (char *)calloc(1, 2);
                 p->len = 2;
                 setEioType(p, EIO_PACKET_PONG);
-                esp_err_t ret = sio_send_packet(client->client_id, p);
+                esp_err_t ret = sio_send_packet(clientId, p);
                 if (ret != ESP_OK)
                 {
                     ESP_LOGE(TAG, "Failed to send PONG packet");
                 }
                 else
                 {
-
-                    sio_client_t *client = sio_client_get_and_lock(clientId);
-                    time(&client->last_sent_pong);
-                    unlockClient(client);
+                    ESP_LOGI(TAG, "Sent PONG packet");
                 }
+
                 free_packet(&p);
 
                 break;
@@ -119,7 +113,7 @@ void sio_polling_task(void *pvParameters)
             case EIO_PACKET_CLOSE:
                 ESP_LOGI(TAG, "Received close packet");
                 // we still want to send the close event here
-                goto end_error;
+                goto polling_error;
                 break;
 
             case EIO_PACKET_MESSAGE:
@@ -147,25 +141,17 @@ void sio_polling_task(void *pvParameters)
 
             esp_event_post(SIO_EVENT, SIO_EVENT_RECEIVED_MESSAGE, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
         }
-    }
-end_error:
-{
-    sio_event_data_t event_data = {
-        .client_id = clientId,
-        .packets_pointer = NULL,
-        .len = 0};
 
-    esp_event_post(SIO_EVENT, SIO_EVENT_DISCONNECTED, &event_data, sizeof(sio_event_data_t), pdMS_TO_TICKS(50));
-}
-end_ok:
+        esp_http_client_close(polling_client);
+
+        continue;
+    }
+
+polling_error:
+    ESP_LOGW(TAG, "Polling task error for client %d", clientId);
 
     sio_client_t *client = sio_client_get_and_lock(clientId);
-    client->status = SIO_CLIENT_STATUS_CLOSED;
-    esp_http_client_close(client->polling_client);
-    esp_http_client_cleanup(client->polling_client);
-    client->polling_client = NULL;
-
+    client->status = SIO_CLIENT_ERROR;
     unlockClient(client);
-
     vTaskDelete(NULL);
 }

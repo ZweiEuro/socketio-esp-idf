@@ -4,6 +4,8 @@
 #include <utility.h>
 #include <string.h>
 
+#include <esp_debug_helpers.h>
+
 static const char *TAG = "[sio_client]";
 
 sio_client_t **sio_client_map = (sio_client_t **)NULL;
@@ -68,27 +70,29 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
 
     client->server_ping_interval_ms = 0;
     client->server_ping_timeout_ms = 0;
-    client->last_sent_pong = 0;
 
     client->_server_session_id = NULL;
-    client->handshake_client = NULL;
     client->alloc_auth_body_cb = config->alloc_auth_body_cb;
 
     // all of the clients need to be null
 
     client->polling_client = NULL;
-    client->posting_client = NULL;
-    client->handshake_client = NULL;
 
     sio_client_map[slot] = client;
 
     xSemaphoreGive(client->client_lock);
 
-    ESP_LOGD(TAG, "inited client %d @ %p", slot, client);
+    ESP_LOGI(TAG, "inited client %d @ %p", slot, client);
 
     return (sio_client_id_t)slot;
 }
 
+/**
+ * @brief
+ *
+ * @param clientId
+ * @return esp_err_t
+ */
 esp_err_t sio_client_close(sio_client_id_t clientId)
 {
     sio_client_t *client = sio_client_get_and_lock(clientId);
@@ -98,55 +102,38 @@ esp_err_t sio_client_close(sio_client_id_t clientId)
         return ESP_ERR_INVALID_ARG;
     }
 
-    switch (client->status)
+    if (client->status == SIO_CLIENT_CLOSED)
     {
-    case SIO_CLIENT_INITED:
-    case SIO_CLIENT_STATUS_CLOSED:
-    case SIO_CLIENT_CLOSING:
-    case SIO_CLIENT_STATUS_HANDSHAKING:
-        ESP_LOGI(TAG, "Client %d in state %d closing not necessary, or in progress",
-                 clientId, client->status);
-        break;
+        ESP_LOGI(TAG, "Client %d already closed", clientId);
 
-    case SIO_CLIENT_STATUS_CONNECTED:
-        // handshaking is controlled by a flag, so we set to closed and wait
-        // for the sio_handshake to finish or fail
-        // and now send the close packet to the server since we were connected
-        client->status = SIO_CLIENT_CLOSING;
         unlockClient(client);
-
-        // send close packet, this may fail if the sio_handshake failed as well but that is ok
-        Packet_t *p = (Packet_t *)calloc(1, sizeof(Packet_t));
-        p->data = calloc(1, 2);
-        p->len = 2;
-        setEioType(p, EIO_PACKET_CLOSE);
-
-        sio_send_packet(clientId, p);
-
-        // wait for the polling client to close
-        while (sio_client_get_and_lock(clientId)->polling_client == NULL)
-        {
-            ESP_LOGI(TAG, "Waiting for polling client tot close");
-            unlockClient(client);
-            vTaskDelay(pdMS_TO_TICKS(1000));
-        }
-
-        client = sio_client_get_and_lock(clientId);
-        client->status = SIO_CLIENT_CLOSING;
-
-        ESP_LOGI(TAG, "Closed client %d which was in state %d", clientId, client->status);
-
-        break;
-
-    case SIO_CLIENT_STATUS_ERROR:
-
-    default:
-        break;
+        return ESP_OK;
     }
 
-    client->status = SIO_CLIENT_STATUS_CLOSED;
+    ESP_LOGI(TAG, "Client %d in state %d closing anything that's up",
+             clientId, client->status);
 
-   
+    if (client->polling_task_handle != NULL)
+    {
+        const eTaskState state = eTaskGetState(client->polling_task_handle);
+        if (state != eDeleted && state != eInvalid)
+        {
+            // only delete it if it is still running, if it detected the error it might have closed itself
+            ESP_LOGI(TAG, "Deleting polling task %p", client->polling_task_handle);
+            vTaskDelete(client->polling_task_handle);
+        }
+
+        client->polling_task_handle = NULL;
+    }
+
+    if (client->polling_client != NULL)
+    {
+        esp_http_client_close(client->polling_client);
+        esp_http_client_cleanup(client->polling_client);
+        client->polling_client = NULL;
+    }
+
+    client->status = SIO_CLIENT_CLOSED;
 
     unlockClient(client);
     return ESP_OK;
@@ -161,7 +148,7 @@ void sio_client_destroy(sio_client_id_t clientId)
 
     sio_client_t *client = sio_client_get_and_lock(clientId);
 
-    if (client->status != SIO_CLIENT_STATUS_CLOSED)
+    if (client->status != SIO_CLIENT_CLOSED)
     {
         ESP_LOGW(TAG, "Closing client that is not  yet closed");
         unlockClient(client);
@@ -179,18 +166,6 @@ void sio_client_destroy(sio_client_id_t clientId)
 
     // Remove the semaphore, cleanup all handlers
     vSemaphoreDelete(client->client_lock);
-    if (client->polling_client != NULL)
-    {
-        ESP_ERROR_CHECK(esp_http_client_cleanup(client->polling_client));
-    }
-    if (client->posting_client != NULL)
-    {
-        ESP_ERROR_CHECK(esp_http_client_cleanup(client->posting_client));
-    }
-    if (client->handshake_client != NULL)
-    {
-        ESP_ERROR_CHECK(esp_http_client_cleanup(client->handshake_client));
-    }
 
     free(client);
     client = NULL;
@@ -214,21 +189,6 @@ void sio_client_destroy(sio_client_id_t clientId)
     }
 }
 
-void sio_client_print_status(const sio_client_id_t clientId)
-{
-    if (!sio_client_exists(clientId))
-    {
-        ESP_LOGE(TAG, "Client %d does not exist", clientId);
-        return;
-    }
-
-    sio_client_t *client = sio_client_get_and_lock(clientId);
-
-    ESP_LOGI(TAG, "Client %d status: %d, last sent pong: %s",
-             clientId, client->status, asctime(localtime(&client->last_sent_pong)));
-
-    unlockClient(client);
-}
 /// ---- runtime Locking
 
 bool sio_client_exists(const sio_client_id_t clientId)
@@ -249,15 +209,35 @@ bool sio_client_exists(const sio_client_id_t clientId)
     return sio_client_map[clientId] != NULL;
 }
 
+#define DEBUG_LOCKING 0
+
 void unlockClient(sio_client_t *client)
 {
-    ESP_LOGD(TAG, "Unlocking client %d", client->client_id);
+#if DEBUG_LOCKING
+
+    ESP_LOGI(TAG, "Unlocking client %p", client);
+    esp_backtrace_print(10);
+
+#endif
     xSemaphoreGive(client->client_lock);
 }
 
 void lockClient(sio_client_t *client)
 {
-    ESP_LOGD(TAG, "Locking client %p", client);
+
+#if DEBUG_LOCKING
+    if (sio_client_is_locked(client->client_id))
+    {
+        ESP_LOGW(TAG, "Client %p is already locked, waiting", client);
+    }
+    else
+    {
+
+        ESP_LOGI(TAG, "Locking client %p", client);
+    }
+    esp_backtrace_print(10);
+#endif
+
     xSemaphoreTake(client->client_lock, portMAX_DELAY);
 }
 
@@ -285,7 +265,7 @@ bool sio_client_is_locked(const sio_client_id_t clientId)
     {
         if (xSemaphoreTake(sio_client_map[clientId]->client_lock, (TickType_t)0) == pdTRUE)
         {
-            unlockClient(sio_client_map[clientId]);
+            xSemaphoreGive(sio_client_map[clientId]->client_lock);
             return false;
         }
         else
