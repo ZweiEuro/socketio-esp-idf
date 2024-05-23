@@ -103,7 +103,7 @@ void sio_continuous_polling_task(void *pvParameters)
                 }
                 else
                 {
-                    ESP_LOGI(TAG, "Sent PONG packet");
+                    ESP_LOGD(TAG, "Sent PONG packet");
                 }
 
                 free_packet(&p);

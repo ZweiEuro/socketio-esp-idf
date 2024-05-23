@@ -113,7 +113,7 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
 
     esp_http_client_set_post_field(sio_post_client, packet->data, packet->len);
 
-    ESP_LOGI(TAG, "Sending packet %p", packet);
+    ESP_LOGD(TAG, "Sending packet %p", packet);
 
     esp_err_t err = esp_http_client_perform(sio_post_client);
     if (err != ESP_OK || packets == NULL)
@@ -132,7 +132,7 @@ esp_err_t sio_send_packet_polling(sio_client_t *client, const Packet_t *packet)
     // allocate posting user if not present
     if (packets[0]->eio_type == EIO_PACKET_OK_SERVER)
     {
-        ESP_LOGI(TAG, "Ok from server response array %p", packets);
+        ESP_LOGD(TAG, "Ok from server response array %p", packets);
     }
     else
     {
