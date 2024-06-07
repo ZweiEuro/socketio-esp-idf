@@ -1,3 +1,5 @@
+PROJECT UNMAINTAINED!
+
 Project based on https://github.com/socketio/socket.io-client-cpp/tree/3.1.0
 
 based on v3.1.0
