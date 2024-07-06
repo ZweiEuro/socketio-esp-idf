@@ -105,7 +105,12 @@ void sio_worker_task(void *pvParameters)
             if (client->status == SIO_CLIENT_ERROR)
             {
                 ESP_LOGI(TAG, "Client %d in error state, closing", clientId);
-                sio_client_close(clientId);
+                esp_err_t ret = sio_client_close(clientId);
+
+                if (ret != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "Failed to close client %d error %d", clientId, ret);
+                }
                 unlockClient(client);
                 continue;
             }

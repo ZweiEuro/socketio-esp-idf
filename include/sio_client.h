@@ -98,6 +98,10 @@ extern "C"
     // any writing else it will most certainly produce race conditions
     sio_client_t *sio_client_get_and_lock(const sio_client_id_t clientId);
 
+    // should the lock state internally be unknown, use this. it will ensure it is locked if it is not already
+    // Caution: technically this is unsafe. Use with caution
+    sio_client_t *sio_client_get_ensure_locked(const sio_client_id_t clientId);
+
     bool sio_client_is_locked(const sio_client_id_t clientId);
 
     char *alloc_polling_get_url(const sio_client_t *client);

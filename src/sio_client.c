@@ -95,7 +95,7 @@ sio_client_id_t sio_client_init(const sio_client_config_t *config)
  */
 esp_err_t sio_client_close(sio_client_id_t clientId)
 {
-    sio_client_t *client = sio_client_get_and_lock(clientId);
+    sio_client_t *client = sio_client_get_ensure_locked(clientId);
 
     if (client == NULL)
     {
@@ -247,6 +247,27 @@ sio_client_t *sio_client_get_and_lock(const sio_client_id_t clientId)
     {
         lockClient(sio_client_map[clientId]);
         return sio_client_map[clientId];
+    }
+    else
+    {
+        return NULL;
+    }
+}
+
+sio_client_t *sio_client_get_ensure_locked(const sio_client_id_t clientId)
+{
+    if (sio_client_exists(clientId))
+    {
+
+        if (sio_client_is_locked(clientId))
+        {
+            return sio_client_map[clientId];
+        }
+        else
+        {
+            lockClient(sio_client_map[clientId]);
+            return sio_client_map[clientId];
+        }
     }
     else
     {
